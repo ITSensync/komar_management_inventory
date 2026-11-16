@@ -1,30 +1,21 @@
 {
-  "name": "be-rfid-inventory",
+  "name": "komar-management-inventory",
   "version": "1.0.0",
-  "description": "Backend RFID Inventory Management System",
-  "main": "server.js",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
-    "db:sync": "node scripts/syncDatabase.js",
-    "db:sync:alter": "node scripts/syncDatabase.js --alter",
-    "test": "node --test"
-  },
-  "keywords": [
-    "express",
-    "sequelize",
-    "rfid"
-  ],
-  "author": "",
-  "license": "ISC",
-  "dependencies": {
-    "dotenv": "^16.3.1",
-    "express": "^4.18.2",
-    "mysql2": "^3.6.5",
-    "sequelize": "^6.35.2",
-    "swagger-ui-express": "^5.0.1"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.2"
+    "dev:api": "npm --prefix apps/api run dev",
+    "dev:web": "pnpm --dir apps/web dev",
+    "test:api": "npm --prefix apps/api test",
+    "test:web": "pnpm --dir apps/web test",
+    "lint:web": "pnpm --dir apps/web lint",
+    "check:api": "node --check apps/api/server.js",
+    "build:web": "pnpm --dir apps/web build",
+    "docker:up": "docker compose up --build -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "docker:config": "docker compose config"
   }
 }

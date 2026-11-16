@@ -1,217 +1,76 @@
-# RFID Inventory Backend
+# KOMAR Inventory Management
 
-Express.js backend untuk RFID inventory management system dengan Sequelize ORM.
+Monorepo untuk dashboard web, API RFID, database MySQL, dan dokumentasi operasional KOMAR.
 
-## Setup
+## Struktur
 
-### 1. Install Dependencies
-```bash
-npm install
+```text
+apps/
+  api/                 Express.js + Sequelize + MySQL
+  web/                 Next.js dashboard
+docs/
+  api/                 Kontrak dan panduan integrasi
+  database/            ERD
+  ARCHITECTURE.md       Batas layanan dan alur request
+  PRD_KOMAR_Inventory_Management.md
+compose.yml            Stack lokal: MySQL, migrate, API, web
 ```
 
-### 2. Configure Database
-Edit file `.env` dengan konfigurasi database Anda:
-```
-DB_HOST=localhost
-DB_USER=root
-DB_PASSWORD=password_anda
-DB_NAME=rfid_inventory
-DB_PORT=3306
-NODE_ENV=development
-PORT=3000
-```
+## Menjalankan seluruh stack
 
-### 3. Jalankan Server
-```bash
-npm start
-```
-
-Atau untuk development dengan hot reload:
-```bash
-npm run dev
-```
-
-### 4. Buat schema database
-```bash
-npm run db:sync
-```
-
-Untuk memperbarui database lokal lama yang sudah memiliki tabel `rfid_tags`, gunakan:
-
-```bash
-npm run db:sync:alter
-```
-
-`db:sync:alter` hanya untuk development atau database uji. Jangan jalankan pada production tanpa backup dan review perubahan schema.
-
-## Docker di VPS
-
-Compose ini menjalankan API dan job schema `migrate`. MySQL berada di luar Compose dan tidak ada port database yang dibuka oleh project ini.
+Prasyarat: Docker Compose v2 dan Docker Engine. Node.js 22+ serta pnpm diperlukan hanya untuk menjalankan aplikasi tanpa Docker.
 
 ```bash
 cp .env.example .env
-# Isi DB_HOST, DB_NAME, DB_USER, dan DB_PASSWORD sesuai MySQL VPS.
+# Ganti DB_PASSWORD dan MYSQL_ROOT_PASSWORD sebelum menjalankan pada lingkungan bersama.
 docker compose up --build -d
 docker compose ps
-docker compose logs -f api
 ```
 
-Service `migrate` menjalankan `npm run db:sync` sekali. API hanya berjalan bila job tersebut berhasil. API dipublikasikan pada `127.0.0.1:${API_PORT}`, sehingga gunakan Nginx atau Caddy sebagai reverse proxy HTTPS.
+- Dashboard: http://localhost:3001
+- API: http://localhost:3000
+- Swagger/OpenAPI: http://localhost:3000/docs
+- Health API: http://localhost:3000/health
+- Health web: http://localhost:3001/health
 
-Jika MySQL berada pada VPS yang sama tetapi tidak berada dalam Compose, gunakan `DB_HOST=host.docker.internal`. Jika berada pada host lain, gunakan hostname atau IP privat host tersebut. Buat user MySQL khusus aplikasi, bukan user `root`.
+Browser selalu mengakses API melalui `http://localhost:3001/api/...`. Next.js meneruskan request tersebut ke service API internal; nama Docker `api` tidak pernah dikirim ke browser.
 
-Untuk rollout versi baru:
+Untuk menghentikan stack tanpa menghapus data:
 
 ```bash
-docker compose up --build -d
+docker compose down
 ```
 
-Jalankan backup database sebelum rollout yang dapat mengubah schema. `db:sync` hanya membuat tabel yang belum ada; perubahan tabel yang sudah ada memerlukan migration versioned tersendiri.
+Reset data lokal secara sengaja:
 
-## Database Models
-
-Model Sequelize di `models/index.js` mengikuti ERD gudang tunggal: user dan sesi login, supplier, produk, lot, penerimaan, pack RFID, lokasi, ledger stok, opname, outbound, serta audit. Model ini hanya membuat schema, belum menambahkan endpoint atau logika API baru.
-
-## API Endpoints
-
-Dokumentasi interaktif Swagger tersedia pada `http://localhost:3000/docs`. File OpenAPI dapat diambil pada `http://localhost:3000/docs/openapi.yaml`.
-
-### 1. Health Check
-```
-GET http://localhost:3000/health
+```bash
+docker compose down -v
 ```
 
-### 2. Products
+## Perintah pengembangan
 
-```text
-GET    /api/products
-POST   /api/products
-GET    /api/products/:id
-PUT    /api/products/:id
-DELETE /api/products/:id
+```bash
+npm run dev:api
+npm run dev:web
+npm run test:api
+npm run test:web
+npm run lint:web
+npm run build:web
+npm run check:api
+npm run docker:config
 ```
 
-Contoh membuat produk:
+API menggunakan `npm` dan web menggunakan `pnpm`; masing-masing lockfile dipertahankan agar perubahan dependency tidak bercampur. Versi Node yang diuji tercatat pada `.nvmrc` (22).
 
-```json
-{
-  "sku": "SUSU-250",
-  "name": "Susu 250 ml",
-  "base_unit": "pcs",
-  "units_per_pack": 5,
-  "min_outbound_units": 5,
-  "expiry_required": true
-}
-```
+## Dokumentasi
 
-`min_outbound_units` harus merupakan kelipatan `units_per_pack`. Produk yang sudah dipakai pada lot, penerimaan, atau outbound tidak dapat dihapus, gunakan `PUT` dengan `status: "inactive"`.
+- [Arsitektur dan batas layanan](docs/ARCHITECTURE.md)
+- [PRD](docs/PRD_KOMAR_Inventory_Management.md)
+- [Kontrak frontend PO/RFID](docs/api/frontend-po-rfid-guide.md)
+- [Panduan backend repack](docs/api/backend-po-repack-guide.md)
+- [OpenAPI](apps/api/docs/openapi.yaml) — sumber kebenaran endpoint yang juga disajikan oleh Swagger.
+- [ERD](docs/database/ERD_KOMAR_Inventory_Management.md)
 
-### 3. Get All RFID Tags
-```
-GET http://localhost:3000/api/rfid
-```
+## Git
 
-Response:
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": 1,
-      "rfid_number": "E2806894000040168D432183",
-      "createdAt": "2024-01-01T00:00:00.000Z",
-      "updatedAt": "2024-01-01T00:00:00.000Z"
-    }
-  ]
-}
-```
-
-### 4. Insert Multiple RFID Tags
-```
-POST http://localhost:3000/api/rfid
-Content-Type: application/json
-
-{
-  "rfid_tags": [
-    "E2806894000040168D432183",
-    "E2806894000040168D43218C",
-    "E2806894000040168D432180"
-  ]
-}
-```
-
-UID akan di-trim dan diubah ke huruf besar. UID yang sudah tersimpan atau muncul dua kali dalam satu submit dikembalikan pada `errors`, tetapi UID valid lain tetap disimpan dengan status `available`.
-
-Response:
-```json
-{
-  "success": true,
-  "total_requested": 3,
-  "total_inserted": 3,
-  "total_errors": 0,
-  "results": [
-    {
-      "rfid_number": "E2806894000040168D432183",
-      "success": true,
-      "id": 1,
-      "status": "available"
-    },
-    {
-      "rfid_number": "E2806894000040168D43218C",
-      "success": true,
-      "id": 2
-    },
-    {
-      "rfid_number": "E2806894000040168D432180",
-      "success": true,
-      "id": 3
-    }
-  ]
-}
-```
-
-### 5. Get RFID Tag by ID
-```
-GET http://localhost:3000/api/rfid/1
-```
-
-### 6. Delete RFID Tag
-```
-DELETE http://localhost:3000/api/rfid/1
-```
-
-## Project Structure
-```
-be-rfid-inventory/
-├── config/
-│   └── database.js          # Konfigurasi Sequelize
-├── controllers/
-│   ├── productController.js # HTTP request dan response produk
-│   └── rfidController.js    # HTTP request dan response RFID
-├── models/
-│   ├── index.js             # Model dan relasi Sequelize
-│   └── RfidTag.js           # Export model RFID tag
-├── routes/
-│   ├── productRoutes.js     # Product API routes
-│   └── rfidRoutes.js        # RFID API routes
-├── services/
-│   ├── productService.js    # Aturan bisnis dan akses database produk
-│   └── rfidService.js       # Aturan bisnis dan akses database RFID
-├── utils/
-│   ├── products.js          # Validasi dan normalisasi produk
-│   └── rfidTags.js          # Normalisasi UID RFID
-├── middleware/
-│   └── errorHandler.js      # Respons error tak terduga
-├── server.js                # Entry point
-├── package.json
-├── .env                     # Environment variables
-└── .gitignore
-```
-
-## Database Schema
-
-Tabel `rfid_tags`:
-- `id` (INT, PRIMARY KEY, AUTO INCREMENT)
-- `rfid_number` (VARCHAR 255, UNIQUE, NOT NULL)
-- `createdAt` (DATETIME)
-- `updatedAt` (DATETIME)
+Repository ini mempertahankan riwayat backend lama. Remote `legacy-backend` hanya merupakan referensi historis dan **bukan** target push monorepo. Tambahkan remote monorepo baru sebelum melakukan push pertama.

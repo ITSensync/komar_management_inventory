@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+:root { --ink: #e7f2f3; --muted: #90a4a8; --panel: #112226; --line: #294146; --teal: #45d0bd; --orange: #f3ab5b; }
+* { box-sizing: border-box; }
+html { background: #081518; }
+body { margin: 0; color: var(--ink); background: radial-gradient(circle at 80% -10%, #173f40 0, transparent 32rem), #081518; font-family: Arial, Helvetica, sans-serif; }
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; }
+::selection { background: #45d0bd66; }
+@media print { .no-print { display: none !important; } body { background: white; color: black; } .print-card { border: 1px solid #111 !important; color: #111 !important; background: white !important; } }

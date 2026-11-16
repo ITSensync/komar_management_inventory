@@ -1,0 +1,806 @@
+openapi: 3.0.3
+info:
+  title: KOMAR RFID Inventory API
+  version: 1.0.0
+  description: API internal untuk katalog produk, persiapan session PO, assignment tag RFID, dan job label gudang.
+servers:
+  - url: http://localhost:3000
+    description: Local development
+tags:
+  - name: System
+  - name: Products
+  - name: RFID Tags
+  - name: PO Sessions
+  - name: Label Printing
+paths:
+  /health:
+    get:
+      tags: [System]
+      summary: Check API health
+      responses:
+        '200':
+          description: API is running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /api/products:
+    get:
+      tags: [Products]
+      summary: List products
+      responses:
+        '200':
+          description: Product list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductListResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags: [Products]
+      summary: Create a product
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductCreateInput'
+      responses:
+        '201':
+          description: Product created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductResponse'
+        '400':
+          $ref: '#/components/responses/ProductValidationError'
+        '409':
+          $ref: '#/components/responses/SkuConflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/products/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ProductId'
+    get:
+      tags: [Products]
+      summary: Get a product
+      responses:
+        '200':
+          description: Product details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductResponse'
+        '404':
+          $ref: '#/components/responses/ProductNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags: [Products]
+      summary: Update a product
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductUpdateInput'
+      responses:
+        '200':
+          description: Product updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductResponse'
+        '400':
+          $ref: '#/components/responses/ProductValidationError'
+        '404':
+          $ref: '#/components/responses/ProductNotFound'
+        '409':
+          $ref: '#/components/responses/SkuConflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [Products]
+      summary: Delete an unused product
+      description: Produk yang telah direferensikan lot, penerimaan, atau outbound harus diubah menjadi inactive, bukan dihapus.
+      responses:
+        '200':
+          description: Product deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessMessage'
+        '404':
+          $ref: '#/components/responses/ProductNotFound'
+        '409':
+          description: Product is already used
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                message: Product is already used. Set status to inactive instead.
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/rfid:
+    get:
+      tags: [RFID Tags]
+      summary: List registered RFID tags
+      responses:
+        '200':
+          description: RFID tag list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RfidTagListResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags: [RFID Tags]
+      summary: Register scanned RFID tags
+      description: UID dinormalisasi menjadi uppercase. UID duplikat tidak menggagalkan UID valid lain dalam submit yang sama.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RfidRegistrationRequest'
+      responses:
+        '201':
+          description: At least one tag was registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RfidRegistrationResponse'
+        '400':
+          description: Invalid request or no valid UID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Every valid UID was already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RfidRegistrationResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/rfid/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RfidTagId'
+    get:
+      tags: [RFID Tags]
+      summary: Get an RFID tag
+      responses:
+        '200':
+          description: RFID tag details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RfidTagResponse'
+        '404':
+          $ref: '#/components/responses/RfidTagNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [RFID Tags]
+      summary: Delete an RFID tag
+      responses:
+        '200':
+          description: RFID tag deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessMessage'
+        '404':
+          $ref: '#/components/responses/RfidTagNotFound'
+        '409':
+          description: RFID tag is assigned to a PO session or another lifecycle process
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/po-sessions:
+    get:
+      tags: [PO Sessions]
+      summary: List PO preparation sessions
+      responses:
+        '200':
+          description: PO session list
+    post:
+      tags: [PO Sessions]
+      summary: Create a PO preparation session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PoSessionInput'
+      responses:
+        '201':
+          description: PO session created
+        '400':
+          description: Validation failed
+        '409':
+          description: Session number already exists
+  /api/po-sessions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PoSessionId'
+    get:
+      tags: [PO Sessions]
+      summary: Get a PO session with items, pack plans, and RFID assignments
+      responses:
+        '200':
+          description: PO session detail
+        '404':
+          description: PO session not found
+    patch:
+      tags: [PO Sessions]
+      summary: Update PO session metadata
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PoSessionInput'
+      responses:
+        '200':
+          description: PO session updated
+  /api/po-sessions/{id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/PoSessionId'
+    post:
+      tags: [PO Sessions]
+      summary: Cancel a PO session that has no printed label
+      responses:
+        '200':
+          description: Unprinted RFID assignments released
+        '409':
+          description: Session already has printed labels
+  /api/po-sessions/{id}/complete:
+    parameters:
+      - $ref: '#/components/parameters/PoSessionId'
+    post:
+      tags: [PO Sessions]
+      summary: Explicitly close an active PO session after every item label has been printed
+      responses:
+        '200':
+          description: PO session completed
+        '409':
+          description: One or more items still need RFID assignment or printed labels
+  /api/po-sessions/{id}/items:
+    parameters:
+      - $ref: '#/components/parameters/PoSessionId'
+    post:
+      tags: [PO Sessions]
+      summary: Add an item and generate RFID pack plans
+      description: The backend calculates total base units from ordered_supplier_pack_quantity and the product supplier_pack_units. The resulting total must divide evenly by min_outbound_units; one plan is created for each RFID.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PoSessionItemInput'
+      responses:
+        '201':
+          description: Item and pack plans created
+  /api/po-session-items/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PoSessionItemId'
+    patch:
+      tags: [PO Sessions]
+      summary: Replace an item before any RFID has been assigned
+      description: The full item payload is required. Existing empty pack plans are recalculated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PoSessionItemInput'
+      responses:
+        '200':
+          description: Item and empty pack plans updated
+        '409':
+          description: Item already has RFID assignments or its session is not active
+    delete:
+      tags: [PO Sessions]
+      summary: Delete an item before any RFID has been assigned
+      responses:
+        '200':
+          description: Item deleted
+        '409':
+          description: Item already has RFID assignments or its session is not active
+  /api/po-session-items/{id}/rfid-scans:
+    parameters:
+      - $ref: '#/components/parameters/PoSessionItemId'
+    post:
+      tags: [PO Sessions]
+      summary: Register scanned UID and atomically assign it to the next empty pack plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RfidRegistrationRequest'
+      responses:
+        '201':
+          description: One or more UID assignments created
+        '409':
+          description: UID unavailable or all plans are filled
+  /api/po-session-items/{id}/rfid-progress:
+    parameters:
+      - $ref: '#/components/parameters/PoSessionItemId'
+    get:
+      tags: [PO Sessions]
+      summary: Get RFID requirement and assignment progress for one item
+      responses:
+        '200':
+          description: RFID assignment progress
+  /api/po-session-items/{id}/print-jobs:
+    parameters:
+      - $ref: '#/components/parameters/PoSessionItemId'
+    post:
+      tags: [Label Printing]
+      summary: Generate labels for every RFID pack plan of an item
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrintFormatInput'
+      responses:
+        '201':
+          description: Print job with immutable label snapshots
+        '409':
+          description: Required RFID assignments are incomplete
+  /api/po-pack-plans/{id}/rfid:
+    parameters:
+      - $ref: '#/components/parameters/PoPackPlanId'
+    delete:
+      tags: [PO Sessions]
+      summary: Release an RFID assignment before the label is printed
+      responses:
+        '200':
+          description: RFID released
+  /api/po-pack-plans/{id}/reprint:
+    parameters:
+      - $ref: '#/components/parameters/PoPackPlanId'
+    post:
+      tags: [Label Printing]
+      summary: Generate a versioned reprint job for one pack plan
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrintFormatInput'
+      responses:
+        '201':
+          description: Reprint job created
+  /api/print-jobs/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PrintJobId'
+    get:
+      tags: [Label Printing]
+      summary: Get label data for frontend rendering or a print bridge
+      responses:
+        '200':
+          description: Print job and label snapshots
+  /api/print-jobs/{id}/mark-printed:
+    parameters:
+      - $ref: '#/components/parameters/PrintJobId'
+    post:
+      tags: [Label Printing]
+      summary: Mark a completed printer job as printed
+      responses:
+        '200':
+          description: Print job and pack plans updated
+components:
+  parameters:
+    ProductId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    RfidTagId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+    PoSessionId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PoSessionItemId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PoPackPlanId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PrintJobId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    InternalError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            message: Internal server error.
+    ProductNotFound:
+      description: Product was not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            message: Product not found.
+    RfidTagNotFound:
+      description: RFID tag was not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            message: RFID tag not found.
+    ProductValidationError:
+      description: Product validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProductValidationErrorResponse'
+    SkuConflict:
+      description: SKU is already registered
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            message: SKU is already registered.
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status, message]
+      properties:
+        status:
+          type: string
+          example: OK
+        message:
+          type: string
+          example: Server is running
+    PoSessionInput:
+      type: object
+      required: [session_number]
+      properties:
+        session_number:
+          type: string
+          example: PO-2026-001
+        reference_number:
+          type: string
+          nullable: true
+          example: PO-SUPPLIER-001
+        notes:
+          type: string
+          nullable: true
+    PoSessionItemInput:
+      type: object
+      required: [product_id, ordered_supplier_pack_quantity, min_outbound_units]
+      properties:
+        product_id:
+          type: string
+          format: uuid
+        ordered_supplier_pack_quantity:
+          type: integer
+          minimum: 1
+          example: 50
+        min_outbound_units:
+          type: integer
+          minimum: 1
+          description: Quantity represented by one warehouse repack, RFID, and label.
+          example: 5
+        expires_on:
+          type: string
+          format: date
+          nullable: true
+          example: '2026-12-31'
+        notes:
+          type: string
+          nullable: true
+    PrintFormatInput:
+      type: object
+      properties:
+        format:
+          type: string
+          enum: [pdf, zpl]
+          default: pdf
+    Product:
+      type: object
+      required: [id, sku, name, base_unit, supplier_pack_units, min_outbound_units, expiry_required, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sku:
+          type: string
+          maxLength: 100
+          example: SUSU-250
+        name:
+          type: string
+          maxLength: 255
+          example: Susu 250 ml
+        base_unit:
+          type: string
+          example: pcs
+        supplier_pack_units:
+          type: integer
+          minimum: 1
+          description: Number of base units inside one supplier pack.
+          example: 12
+        supplier_pack_label:
+          type: string
+          nullable: true
+          description: Optional supplier packaging label. The application default is pack.
+          example: pack
+        min_outbound_units:
+          type: integer
+          minimum: 1
+          description: Number of base units in one warehouse repack, RFID, and label.
+          example: 5
+        expiry_required:
+          type: boolean
+          example: true
+        status:
+          type: string
+          enum: [active, inactive]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ProductCreateInput:
+      type: object
+      required: [sku, name, supplier_pack_units, min_outbound_units]
+      properties:
+        sku:
+          type: string
+          example: SUSU-250
+        name:
+          type: string
+          example: Susu 250 ml
+        base_unit:
+          type: string
+          default: pcs
+        supplier_pack_units:
+          type: integer
+          minimum: 1
+          example: 12
+        supplier_pack_label:
+          type: string
+          nullable: true
+          default: pack
+        min_outbound_units:
+          type: integer
+          minimum: 1
+          example: 5
+        expiry_required:
+          type: boolean
+          default: false
+        status:
+          type: string
+          enum: [active, inactive]
+          default: active
+    ProductUpdateInput:
+      type: object
+      minProperties: 1
+      properties:
+        sku:
+          type: string
+        name:
+          type: string
+        base_unit:
+          type: string
+        supplier_pack_units:
+          type: integer
+          minimum: 1
+        supplier_pack_label:
+          type: string
+          nullable: true
+        min_outbound_units:
+          type: integer
+          minimum: 1
+        expiry_required:
+          type: boolean
+        status:
+          type: string
+          enum: [active, inactive]
+    ProductResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: '#/components/schemas/Product'
+    ProductListResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'
+    ProductValidationErrorResponse:
+      type: object
+      required: [success, message, errors]
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+          example: Product validation failed.
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldError'
+    FieldError:
+      type: object
+      required: [field, message]
+      properties:
+        field:
+          type: string
+          example: min_outbound_units
+        message:
+          type: string
+          example: Must be a positive integer.
+    RfidTag:
+      type: object
+      required: [id, rfid_number, status]
+      properties:
+        id:
+          type: integer
+          example: 1
+        rfid_number:
+          type: string
+          example: E2806894000040168D432183
+        status:
+          type: string
+          enum: [available, assigned_to_po, attached, detach_pending, detached, inspection, retired]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    RfidTagResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: '#/components/schemas/RfidTag'
+    RfidTagListResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/RfidTag'
+    RfidRegistrationRequest:
+      type: object
+      required: [rfid_tags]
+      properties:
+        rfid_tags:
+          type: array
+          minItems: 1
+          items:
+            type: string
+          example: [E2806894000040168D432183, E2806894000040168D43218C]
+    RfidRegistrationResponse:
+      type: object
+      required: [success, total_requested, total_inserted, total_errors, results, errors]
+      properties:
+        success:
+          type: boolean
+          example: true
+        total_requested:
+          type: integer
+          example: 2
+        total_inserted:
+          type: integer
+          example: 1
+        total_errors:
+          type: integer
+          example: 1
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/RfidRegistrationResult'
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/RfidRegistrationError'
+    RfidRegistrationResult:
+      type: object
+      required: [index, rfid_number, id, status]
+      properties:
+        index:
+          type: integer
+          example: 0
+        rfid_number:
+          type: string
+          example: E2806894000040168D432183
+        id:
+          type: integer
+          example: 1
+        status:
+          type: string
+          example: available
+    RfidRegistrationError:
+      type: object
+      required: [index, rfid_number, code, message]
+      properties:
+        index:
+          type: integer
+          example: 1
+        rfid_number:
+          type: string
+          example: E2806894000040168D432183
+        code:
+          type: string
+          enum: [invalid_uid, duplicate_in_request, already_registered]
+        message:
+          type: string
+    SuccessMessage:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+    ErrorResponse:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
