@@ -772,7 +772,52 @@ Contoh respons:
 }
 ```
 
-### 9.4 Rekomendasi implementasi layar scan
+### 9.4 Realtime reader melalui WebSocket
+
+Untuk reader Orange Pi TCP/IP, frontend dapat membuat scan session:
+
+```http
+POST /api/po-session-items/:itemId/rfid-scan-sessions
+Content-Type: application/json
+```
+
+```json
+{
+  "reader_code": "orangepi-reader-01"
+}
+```
+
+Setelah session dibuat, dashboard terhubung ke `ws://<api-host>:3000/ws` dan
+mengirim handshake:
+
+```json
+{
+  "type": "hello",
+  "role": "dashboard"
+}
+```
+
+Lalu subscribe ke scan session:
+
+```json
+{
+  "type": "subscribe",
+  "scan_session_id": "SCAN_SESSION_UUID"
+}
+```
+
+Backend mengirim `scan.result` setelah UID dari Orange Pi berhasil diproses.
+Sumber kebenaran tetap endpoint progress/database; WebSocket hanya mengirim
+perubahan realtime. Scan session dapat dihentikan dengan:
+
+```http
+POST /api/rfid-scan-sessions/:scanSessionId/stop
+```
+
+Jika gateway terputus, session ditandai `failed` dan admin dapat memulai scan
+session baru.
+
+### 9.5 Rekomendasi implementasi layar scan
 
 1. Ambil progress saat halaman dibuka.
 2. Tampilkan `2 / 120 RFID terpasang` dan `118 tersisa` untuk contoh susu 50 pack × 12 pcs dengan repack 5 pcs.
@@ -788,7 +833,7 @@ Contoh respons:
 
 > Reader UHF dapat membaca UID berulang kali atau membaca tag di dekatnya. Frontend harus selalu menampilkan daftar UID yang akan disimpan dan memberi admin kesempatan menghapus UID dari buffer sebelum submit.
 
-### 9.5 Lepas RFID salah scan
+### 9.6 Lepas RFID salah scan
 
 ```http
 DELETE /api/po-pack-plans/:packPlanId/rfid

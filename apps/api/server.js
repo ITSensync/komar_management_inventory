@@ -1,5 +1,6 @@
 require('./config/env');
 const express = require('express');
+const http = require('http');
 const cors = require('cors');
 const path = require('path');
 const swaggerUi = require('swagger-ui-express');
@@ -9,9 +10,11 @@ const rfidRoutes = require('./routes/rfidRoutes');
 const productRoutes = require('./routes/productRoutes');
 const poSessionRoutes = require('./routes/poSessionRoutes');
 const errorHandler = require('./middleware/errorHandler');
+const readerSocketService = require('./services/readerSocketService');
 const os = require('os');
 
 const app = express();
+const httpServer = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:3001,http://127.0.0.1:3001')
   .split(',')
@@ -81,12 +84,14 @@ const startServer = async () => {
     console.log('✓ Database connection ready');
 
     const localIP = getLocalIP();
-    app.listen(PORT, '0.0.0.0', () => {
+    readerSocketService.init(httpServer);
+    httpServer.listen(PORT, '0.0.0.0', () => {
       console.log(`✓ Server running`);
       console.log(`  - Local: http://localhost:${PORT}`);
       console.log(`  - Network: http://${localIP}:${PORT}`);
       console.log(`✓ Health check: http://${localIP}:${PORT}/health`);
       console.log(`✓ API endpoint: http://${localIP}:${PORT}/api/rfid`);
+      console.log(`✓ RFID WebSocket: ws://${localIP}:${PORT}/ws`);
     });
   } catch (error) {
     console.error('✗ Server startup error:', error.message);
@@ -98,4 +103,4 @@ if (require.main === module) {
   startServer();
 }
 
-module.exports = { app, startServer };
+module.exports = { app, httpServer, startServer };

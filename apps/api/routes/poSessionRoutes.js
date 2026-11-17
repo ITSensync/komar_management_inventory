@@ -15,6 +15,9 @@ router.patch('/po-session-items/:id', controller.updateItem);
 router.delete('/po-session-items/:id', controller.deleteItem);
 router.post('/po-session-items/:id/rfid-scans', controller.scanRfidTags);
 router.get('/po-session-items/:id/rfid-progress', controller.getRfidProgress);
+router.post('/po-session-items/:id/rfid-scan-sessions', controller.startRfidScan);
+router.get('/rfid-scan-sessions/:id', controller.getRfidScanSession);
+router.post('/rfid-scan-sessions/:id/stop', controller.stopRfidScan);
 router.post('/po-session-items/:id/print-jobs', controller.createPrintJob);
 
 router.delete('/po-pack-plans/:id/rfid', controller.releaseRfid);

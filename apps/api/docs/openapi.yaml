@@ -337,6 +337,56 @@ paths:
       responses:
         '200':
           description: RFID assignment progress
+  /api/po-session-items/{id}/rfid-scan-sessions:
+    parameters:
+      - $ref: '#/components/parameters/PoSessionItemId'
+    post:
+      tags: [PO Sessions]
+      summary: Start a realtime RFID scan session for an item
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RfidScanSessionStartRequest'
+      responses:
+        '201':
+          description: Realtime scan session created and reader start command sent
+        '409':
+          description: Item already has an active scan session
+        '503':
+          description: Reader gateway is not connected
+  /api/rfid-scan-sessions/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [PO Sessions]
+      summary: Get a realtime RFID scan session
+      responses:
+        '200':
+          description: Scan session details
+        '404':
+          description: Scan session not found
+  /api/rfid-scan-sessions/{id}/stop:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [PO Sessions]
+      summary: Stop a realtime RFID scan session
+      responses:
+        '200':
+          description: Scan session stopped
+        '404':
+          description: Scan session not found
   /api/po-session-items/{id}/print-jobs:
     parameters:
       - $ref: '#/components/parameters/PoSessionItemId'
@@ -731,6 +781,17 @@ components:
           items:
             type: string
           example: [E2806894000040168D432183, E2806894000040168D43218C]
+    RfidScanSessionStartRequest:
+      type: object
+      properties:
+        reader_code:
+          type: string
+          example: orangepi-reader-01
+        ttl_seconds:
+          type: integer
+          minimum: 30
+          maximum: 3600
+          default: 600
     RfidRegistrationResponse:
       type: object
       required: [success, total_requested, total_inserted, total_errors, results, errors]

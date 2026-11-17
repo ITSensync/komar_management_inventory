@@ -306,6 +306,38 @@ const IdempotencyKey = sequelize.define('IdempotencyKey', {
   expires_at: { type: DataTypes.DATE, allowNull: false },
 }, options('idempotency_keys', [{ unique: true, fields: ['user_id', 'key'] }, { fields: ['expires_at'] }]));
 
+const RfidScanSession = sequelize.define('RfidScanSession', {
+  id: uuid,
+  po_session_item_id: { type: DataTypes.UUID, allowNull: false },
+  reader_code: { type: DataTypes.STRING(100), allowNull: false },
+  status: {
+    type: DataTypes.ENUM('starting', 'active', 'stopped', 'completed', 'failed', 'expired'),
+    allowNull: false,
+    defaultValue: 'starting',
+  },
+  started_at: DataTypes.DATE,
+  stopped_at: DataTypes.DATE,
+  expires_at: { type: DataTypes.DATE, allowNull: false },
+  last_event_at: DataTypes.DATE,
+}, options('rfid_scan_sessions', [
+  { fields: ['po_session_item_id', 'status'] },
+  { fields: ['reader_code', 'status'] },
+]));
+
+const RfidScanEvent = sequelize.define('RfidScanEvent', {
+  id: uuid,
+  rfid_scan_session_id: { type: DataTypes.UUID, allowNull: false },
+  event_id: { type: DataTypes.STRING(255), allowNull: false, unique: true },
+  rfid_number: { type: DataTypes.STRING(255), allowNull: false },
+  observed_at: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+  status: { type: DataTypes.ENUM('accepted', 'duplicate', 'rejected'), allowNull: false },
+  error_code: DataTypes.STRING(100),
+  result: DataTypes.JSON,
+}, options('rfid_scan_events', [
+  { fields: ['rfid_scan_session_id', 'observed_at'] },
+  { fields: ['rfid_scan_session_id', 'rfid_number'] },
+]));
+
 User.hasMany(RefreshSession, { foreignKey: 'user_id', as: 'refreshSessions' });
 RefreshSession.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 RefreshSession.hasMany(WebSession, { foreignKey: 'refresh_session_id', as: 'webSessions' });
@@ -323,6 +355,10 @@ PoSessionItem.hasMany(PoPackPlan, { foreignKey: 'po_session_item_id', as: 'packP
 PoPackPlan.belongsTo(PoSessionItem, { foreignKey: 'po_session_item_id', as: 'item' });
 RfidTag.hasOne(PoPackPlan, { foreignKey: 'rfid_tag_id', as: 'poPackPlan' });
 PoPackPlan.belongsTo(RfidTag, { foreignKey: 'rfid_tag_id', as: 'rfidTag' });
+PoSessionItem.hasMany(RfidScanSession, { foreignKey: 'po_session_item_id', as: 'rfidScanSessions' });
+RfidScanSession.belongsTo(PoSessionItem, { foreignKey: 'po_session_item_id', as: 'item' });
+RfidScanSession.hasMany(RfidScanEvent, { foreignKey: 'rfid_scan_session_id', as: 'events' });
+RfidScanEvent.belongsTo(RfidScanSession, { foreignKey: 'rfid_scan_session_id', as: 'scanSession' });
 PoSession.hasMany(LabelPrintJob, { foreignKey: 'po_session_id', as: 'labelPrintJobs' });
 LabelPrintJob.belongsTo(PoSession, { foreignKey: 'po_session_id', as: 'session' });
 PoSessionItem.hasMany(LabelPrintJob, { foreignKey: 'po_session_item_id', as: 'labelPrintJobs' });
@@ -443,4 +479,6 @@ module.exports = {
   TagLifecycleEvent,
   AuditLog,
   IdempotencyKey,
+  RfidScanSession,
+  RfidScanEvent,
 };

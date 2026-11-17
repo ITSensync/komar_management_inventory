@@ -1,4 +1,5 @@
 const poSessionService = require('../services/poSessionService');
+const rfidScanService = require('../services/rfidScanService');
 
 async function listSessions(req, res, next) {
   try {
@@ -78,6 +79,28 @@ async function getRfidProgress(req, res, next) {
   } catch (error) { next(error); }
 }
 
+async function startRfidScan(req, res, next) {
+  try {
+    const result = await rfidScanService.createScanSession(req.params.id, req.body);
+    res.status(result.status).json(result.body);
+  } catch (error) { next(error); }
+}
+
+async function stopRfidScan(req, res, next) {
+  try {
+    const result = await rfidScanService.stopScanSession(req.params.id);
+    res.status(result.status).json(result.body);
+  } catch (error) { next(error); }
+}
+
+async function getRfidScanSession(req, res, next) {
+  try {
+    const session = await rfidScanService.getScanSession(req.params.id);
+    if (!session) return res.status(404).json({ success: false, message: 'RFID scan session not found.' });
+    res.json({ success: true, data: session });
+  } catch (error) { next(error); }
+}
+
 async function releaseRfid(req, res, next) {
   try {
     const result = await poSessionService.releaseRfid(req.params.id);
@@ -123,12 +146,15 @@ module.exports = {
   deleteItem,
   getPrintJob,
   getRfidProgress,
+  getRfidScanSession,
   getSession,
   listSessions,
   markPrintJobPrinted,
   releaseRfid,
   reprintLabel,
   scanRfidTags,
+  startRfidScan,
+  stopRfidScan,
   updateItem,
   updateSession,
 };

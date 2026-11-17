@@ -9,6 +9,7 @@ const {
   RfidTag,
   LabelPrintJob,
   LabelPrintItem,
+  RfidScanSession,
 } = require('../models');
 const { normalizeRfidTags } = require('../utils/rfidTags');
 const { calculateRepackPlan, normalizePoSession, normalizePoSessionItem, normalizePrintFormat } = require('../utils/poSessions');
@@ -423,6 +424,8 @@ async function cancelSession(sessionId) {
     });
     if (printed) return failure(409, 'A session with printed labels cannot be cancelled automatically.');
 
+    const sessionItems = await PoSessionItem.findAll({ where: { po_session_id: session.id }, attributes: ['id'], transaction });
+    const sessionItemIds = sessionItems.map((item) => item.id);
     const plans = await PoPackPlan.findAll({
       include: [{ model: PoSessionItem, as: 'item', where: { po_session_id: session.id }, attributes: [] }],
       where: { rfid_tag_id: { [Op.not]: null } },
@@ -432,10 +435,14 @@ async function cancelSession(sessionId) {
     const tagIds = plans.map((plan) => plan.rfid_tag_id);
     if (tagIds.length) await RfidTag.update({ status: 'available' }, { where: { id: { [Op.in]: tagIds } }, transaction });
     await PoPackPlan.update({ rfid_tag_id: null, status: 'cancelled', assigned_at: null }, {
-      where: { po_session_item_id: { [Op.in]: (await PoSessionItem.findAll({ where: { po_session_id: session.id }, attributes: ['id'], transaction })).map((item) => item.id) } },
+      where: { po_session_item_id: { [Op.in]: sessionItemIds } },
       transaction,
     });
-    await PoSessionItem.update({ status: 'cancelled' }, { where: { po_session_id: session.id }, transaction });
+    await RfidScanSession.update({ status: 'stopped', stopped_at: new Date() }, {
+      where: { po_session_item_id: { [Op.in]: sessionItemIds }, status: { [Op.in]: ['starting', 'active'] } },
+      transaction,
+    });
+    await PoSessionItem.update({ status: 'cancelled' }, { where: { id: { [Op.in]: sessionItemIds } }, transaction });
     await LabelPrintJob.update({ status: 'cancelled' }, { where: { po_session_id: session.id, status: 'generated' }, transaction });
     await session.update({ status: 'cancelled' }, { transaction });
     return { status: 200, body: { success: true, data: session } };
