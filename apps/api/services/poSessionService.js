@@ -211,11 +211,11 @@ async function deleteItem(itemId) {
   });
 }
 
-async function scanRfidTags(itemId, rfidTags) {
+async function scanRfidTags(itemId, rfidTags, externalTransaction = null) {
   const normalized = normalizeRfidTags(rfidTags);
   if (normalized.error) return failure(400, normalized.error);
 
-  return sequelize.transaction(async (transaction) => {
+  const execute = async (transaction) => {
     const item = await PoSessionItem.findByPk(itemId, { transaction, lock: transaction.LOCK.UPDATE });
     if (!item) return failure(404, 'PO session item not found.');
     const session = await PoSession.findByPk(item.po_session_id, { transaction, lock: transaction.LOCK.UPDATE });
@@ -292,7 +292,9 @@ async function scanRfidTags(itemId, rfidTags) {
         errors,
       },
     };
-  });
+  };
+
+  return externalTransaction ? execute(externalTransaction) : sequelize.transaction(execute);
 }
 
 async function getRfidProgress(itemId) {
@@ -412,7 +414,7 @@ async function markPrintJobPrinted(jobId) {
 }
 
 async function cancelSession(sessionId) {
-  return sequelize.transaction(async (transaction) => {
+  const result = await sequelize.transaction(async (transaction) => {
     const session = await PoSession.findByPk(sessionId, { transaction, lock: transaction.LOCK.UPDATE });
     if (!session) return failure(404, 'PO session not found.');
     if (session.status === 'cancelled') return { status: 200, body: { success: true, data: session } };
@@ -426,6 +428,12 @@ async function cancelSession(sessionId) {
 
     const sessionItems = await PoSessionItem.findAll({ where: { po_session_id: session.id }, attributes: ['id'], transaction });
     const sessionItemIds = sessionItems.map((item) => item.id);
+    const activeScanSessions = await RfidScanSession.findAll({
+      where: { po_session_item_id: { [Op.in]: sessionItemIds }, status: { [Op.in]: ['starting', 'active'] } },
+      attributes: ['id', 'reader_code'],
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
     const plans = await PoPackPlan.findAll({
       include: [{ model: PoSessionItem, as: 'item', where: { po_session_id: session.id }, attributes: [] }],
       where: { rfid_tag_id: { [Op.not]: null } },
@@ -445,8 +453,17 @@ async function cancelSession(sessionId) {
     await PoSessionItem.update({ status: 'cancelled' }, { where: { id: { [Op.in]: sessionItemIds } }, transaction });
     await LabelPrintJob.update({ status: 'cancelled' }, { where: { po_session_id: session.id, status: 'generated' }, transaction });
     await session.update({ status: 'cancelled' }, { transaction });
-    return { status: 200, body: { success: true, data: session } };
+    return {
+      status: 200,
+      body: { success: true, data: session },
+      stopCommands: activeScanSessions.map((scanSession) => ({ readerCode: scanSession.reader_code, scanSessionId: scanSession.id })),
+    };
   });
+  if (result.stopCommands && result.stopCommands.length) {
+    const { sendToReader } = require('./readerSocketService');
+    for (const command of result.stopCommands) sendToReader(command.readerCode, { type: 'reader.stop', scan_session_id: command.scanSessionId });
+  }
+  return { status: result.status, body: result.body };
 }
 
 async function completeSession(sessionId) {

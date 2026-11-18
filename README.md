@@ -71,7 +71,7 @@ API menggunakan `npm` dan web menggunakan `pnpm`; masing-masing lockfile diperta
 - [Panduan backend repack](docs/api/backend-po-repack-guide.md)
 - [OpenAPI](apps/api/docs/openapi.yaml) — sumber kebenaran endpoint yang juga disajikan oleh Swagger.
 - [ERD](docs/database/ERD_KOMAR_Inventory_Management.md)
-- [Integrasi Orange Pi RFID TCP/IP](docs/hardware/orangepi-rfid-websocket.md)
+- [Integrasi Orange Pi RFID USB Serial](docs/hardware/orangepi-rfid-websocket.md)
 
 ## Git
 

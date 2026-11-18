@@ -54,6 +54,9 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS}
       RFID_GATEWAY_TOKEN: ${RFID_GATEWAY_TOKEN}
       RFID_READER_CODE: ${RFID_READER_CODE:-orangepi-reader-01}
+      RFID_READER_CODES: ${RFID_READER_CODES:-}
+      RFID_LOG_LEVEL: ${RFID_LOG_LEVEL:-info}
+      LOG_HEALTH_REQUESTS: ${LOG_HEALTH_REQUESTS:-false}
     depends_on:
       migrate:
         condition: service_completed_successfully

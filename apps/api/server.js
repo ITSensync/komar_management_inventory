@@ -10,7 +10,9 @@ const rfidRoutes = require('./routes/rfidRoutes');
 const productRoutes = require('./routes/productRoutes');
 const poSessionRoutes = require('./routes/poSessionRoutes');
 const errorHandler = require('./middleware/errorHandler');
+const requestLogger = require('./middleware/requestLogger');
 const readerSocketService = require('./services/readerSocketService');
+const logger = require('./utils/logger');
 const os = require('os');
 
 const app = express();
@@ -35,6 +37,7 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(requestLogger);
 
 // Routes
 app.use('/api', rfidRoutes);
@@ -92,6 +95,7 @@ const startServer = async () => {
       console.log(`✓ Health check: http://${localIP}:${PORT}/health`);
       console.log(`✓ API endpoint: http://${localIP}:${PORT}/api/rfid`);
       console.log(`✓ RFID WebSocket: ws://${localIP}:${PORT}/ws`);
+      logger.info('api.started', { port: PORT, websocket_path: '/ws' });
     });
   } catch (error) {
     console.error('✗ Server startup error:', error.message);

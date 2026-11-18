@@ -1,8 +1,11 @@
 const { WebSocketServer, WebSocket } = require('ws');
+const logger = require('../utils/logger');
 
 const gatewayConnections = new Map();
 const dashboardConnections = new Set();
+const readerStatuses = new Set(['connecting', 'ready', 'reading', 'stopped', 'error', 'offline']);
 let webSocketServer;
+let heartbeatTimer;
 
 function sendJson(socket, message) {
   if (socket.readyState !== WebSocket.OPEN) return false;
@@ -15,9 +18,18 @@ function gatewayTokenIsValid(token) {
   return Boolean(expected && token && token === expected);
 }
 
+function readerCodeIsAllowed(readerCode) {
+  const configured = String(process.env.RFID_READER_CODES || process.env.RFID_READER_CODE || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return configured.length === 0 || configured.includes(readerCode);
+}
+
 async function subscribeDashboard(socket, scanSessionId) {
   if (!scanSessionId || typeof scanSessionId !== 'string') return;
   socket.scanSessionIds.add(scanSessionId);
+  logger.info('dashboard.scan_subscribed', { scan_session_id: scanSessionId });
   sendJson(socket, { type: 'subscription.started', scan_session_id: scanSessionId });
   try {
     const { getScanSession } = require('./rfidScanService');
@@ -41,27 +53,70 @@ function broadcastToScanSession(scanSessionId, message) {
 
 function sendToReader(readerCode, message) {
   const socket = gatewayConnections.get(readerCode);
-  if (!socket) return false;
+  if (!socket) {
+    logger.warn('gateway.command_not_sent', { reader_code: readerCode, command: message.type, reason: 'gateway_not_connected' });
+    return false;
+  }
+  logger.info('gateway.command_sent', { reader_code: readerCode, command: message.type, scan_session_id: message.scan_session_id });
   return sendJson(socket, message);
 }
 
 async function handleGatewayMessage(socket, message) {
   if (message.type === 'reader.ready' || message.type === 'reader.status') {
+    const status = message.type === 'reader.ready' ? 'ready' : message.status;
+    if (message.type === 'reader.status' && !readerStatuses.has(status)) {
+      sendJson(socket, { type: 'reader.error', code: 'invalid_reader_status', message: `Unsupported reader status: ${status}.` });
+      logger.warn('gateway.status_rejected', { reader_code: socket.readerCode, status });
+      return;
+    }
+    if (message.reader_code && message.reader_code !== socket.readerCode) {
+      sendJson(socket, { type: 'reader.error', code: 'reader_code_mismatch', message: 'reader_code does not match the authenticated gateway.' });
+      return;
+    }
+    logger.info(`gateway.${message.type}`, { reader_code: socket.readerCode, scan_session_id: message.scan_session_id, status });
     if (message.scan_session_id) {
       const { markScanSessionActive } = require('./rfidScanService');
-      await markScanSessionActive(message.scan_session_id, message.status);
-      broadcastToScanSession(message.scan_session_id, message);
+      await markScanSessionActive(message.scan_session_id, status);
+      broadcastToScanSession(message.scan_session_id, { ...message, reader_code: socket.readerCode, status });
     }
     return;
   }
 
   if (message.type === 'rfid.detected') {
+    logger.info('rfid.event_received', { reader_code: socket.readerCode, scan_session_id: message.scan_session_id, event_id: message.event_id, uid: message.uid });
     if (!message.scan_session_id || !message.event_id || !message.uid) {
-      sendJson(socket, { type: 'reader.error', code: 'invalid_event', message: 'RFID event requires scan_session_id, event_id, and uid.' });
+      if (message.event_id && message.scan_session_id) {
+        sendJson(socket, {
+          type: 'rfid.ack',
+          event_id: String(message.event_id),
+          scan_session_id: String(message.scan_session_id),
+          reader_code: socket.readerCode,
+          status: 'rejected',
+          code: 'invalid_event',
+          message: 'RFID event requires scan_session_id, event_id, and uid.',
+          processed_at: new Date().toISOString(),
+        });
+      } else {
+        sendJson(socket, { type: 'reader.error', code: 'invalid_event', message: 'RFID event requires scan_session_id, event_id, and uid.' });
+      }
+      return;
+    }
+    if (message.observed_at && Number.isNaN(Date.parse(message.observed_at))) {
+      sendJson(socket, {
+        type: 'rfid.ack',
+        event_id: String(message.event_id),
+        scan_session_id: String(message.scan_session_id),
+        reader_code: socket.readerCode,
+        status: 'rejected',
+        code: 'invalid_observed_at',
+        message: 'observed_at must be a valid ISO-8601 timestamp.',
+        processed_at: new Date().toISOString(),
+      });
       return;
     }
     const { processReaderEvent } = require('./rfidScanService');
-    await processReaderEvent(message);
+    const ack = await processReaderEvent(message, socket.readerCode);
+    if (ack) sendJson(socket, ack);
   }
 }
 
@@ -82,9 +137,13 @@ function init(server) {
     socket.role = null;
     socket.readerCode = null;
     socket.scanSessionIds = new Set();
+    socket.isAlive = true;
+    logger.debug('websocket.connected');
+    socket.on('pong', () => { socket.isAlive = true; });
 
     const helloTimeout = setTimeout(() => {
       if (!socket.role) {
+        logger.warn('websocket.hello_timeout');
         sendJson(socket, { type: 'error', code: 'hello_timeout', message: 'Send hello before using the WebSocket.' });
         socket.close(1008, 'Hello timeout');
       }
@@ -96,16 +155,17 @@ function init(server) {
       dashboardConnections.delete(socket);
       if (socket.readerCode && gatewayConnections.get(socket.readerCode) === socket) {
         gatewayConnections.delete(socket.readerCode);
+        logger.warn('gateway.disconnected', { reader_code: socket.readerCode });
         void (async () => {
           const { Op } = require('sequelize');
           const { RfidScanSession } = require('../models');
           const sessions = await RfidScanSession.findAll({ where: { reader_code: socket.readerCode, status: { [Op.in]: ['starting', 'active'] } } });
           for (const session of sessions) {
-            await session.update({ status: 'failed', stopped_at: new Date() });
             broadcastToScanSession(session.id, { type: 'reader.status', scan_session_id: session.id, status: 'offline', message: 'Orange Pi gateway terputus.' });
           }
         })().catch((error) => console.error('Unable to close RFID scan sessions:', error.message));
       }
+      if (socket.role === 'dashboard') logger.debug('dashboard.disconnected');
     });
 
     socket.on('message', async (raw) => {
@@ -113,6 +173,7 @@ function init(server) {
       try {
         message = JSON.parse(raw.toString());
       } catch {
+        logger.warn('websocket.invalid_json');
         sendJson(socket, { type: 'error', code: 'invalid_json', message: 'WebSocket message must be valid JSON.' });
         return;
       }
@@ -124,7 +185,16 @@ function init(server) {
         }
 
         if (message.role === 'gateway') {
-          if (!gatewayTokenIsValid(message.token) || !message.reader_code) {
+          const rejection = !gatewayTokenIsValid(message.token)
+            ? { code: 'INVALID_TOKEN', message: 'Gateway token tidak valid.' }
+            : !message.reader_code
+              ? { code: 'READER_CODE_REQUIRED', message: 'reader_code wajib diisi.' }
+              : !readerCodeIsAllowed(String(message.reader_code))
+                ? { code: 'UNKNOWN_READER', message: 'reader_code tidak terdaftar di backend.' }
+                : null;
+          if (rejection) {
+            logger.warn('gateway.connection_rejected', { reader_code: message.reader_code, reason: rejection.code });
+            sendJson(socket, { type: 'hello.rejected', code: rejection.code, message: rejection.message });
             socket.close(1008, 'Invalid gateway credentials');
             return;
           }
@@ -134,7 +204,10 @@ function init(server) {
           if (previous && previous !== socket) previous.close(1000, 'Replaced by a newer gateway connection');
           gatewayConnections.set(socket.readerCode, socket);
           clearTimeout(helloTimeout);
+          logger.info('gateway.connected', { reader_code: socket.readerCode });
           sendJson(socket, { type: 'hello.accepted', role: 'gateway', reader_code: socket.readerCode });
+          void require('./rfidScanService').resumeReaderSessions(socket.readerCode)
+            .catch((error) => logger.error('scan.resume_failed', { reader_code: socket.readerCode, message: error.message }));
           return;
         }
 
@@ -142,6 +215,7 @@ function init(server) {
           socket.role = 'dashboard';
           dashboardConnections.add(socket);
           clearTimeout(helloTimeout);
+          logger.info('dashboard.connected');
           sendJson(socket, { type: 'hello.accepted', role: 'dashboard' });
           if (message.scan_session_id) void subscribeDashboard(socket, message.scan_session_id);
           return;
@@ -169,6 +243,19 @@ function init(server) {
       }
     });
   });
+
+  heartbeatTimer = setInterval(() => {
+    for (const socket of webSocketServer.clients) {
+      if (socket.isAlive === false) {
+        socket.terminate();
+        continue;
+      }
+      socket.isAlive = false;
+      socket.ping();
+    }
+  }, 30000);
+  heartbeatTimer.unref?.();
+  webSocketServer.on('close', () => clearInterval(heartbeatTimer));
 
   return webSocketServer;
 }

@@ -774,7 +774,7 @@ Contoh respons:
 
 ### 9.4 Realtime reader melalui WebSocket
 
-Untuk reader Orange Pi TCP/IP, frontend dapat membuat scan session:
+Untuk reader USB Serial yang dibaca oleh gateway Orange Pi, frontend dapat membuat scan session:
 
 ```http
 POST /api/po-session-items/:itemId/rfid-scan-sessions

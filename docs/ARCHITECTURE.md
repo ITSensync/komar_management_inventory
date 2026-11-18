@@ -20,7 +20,7 @@ Browser -> http://localhost:3001/api/* -> Next.js rewrite -> http://api:3000/api
 ## Alur realtime RFID
 
 ```text
-RFID reader TCP/IP -> Orange Pi gateway -> WebSocket API /ws -> MySQL
+RFID reader USB Serial -> Orange Pi gateway -> WebSocket API /ws -> MySQL
                                                |
                                                +-> WebSocket dashboard
 ```
