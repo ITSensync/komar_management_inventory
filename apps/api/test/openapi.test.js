@@ -13,7 +13,10 @@ test('serves the OpenAPI file and Swagger UI', async () => {
     const swaggerUi = await fetch(`${baseUrl}/docs/`);
 
     assert.equal(specification.status, 200);
-    assert.match(await specification.text(), /openapi: 3\.0\.3/);
+    const specificationText = await specification.text();
+    assert.match(specificationText, /openapi: 3\.0\.3/);
+    assert.match(specificationText, /\/api\/mobile\/placements/);
+    assert.match(specificationText, /\/api\/mobile\/racks/);
     assert.equal(swaggerUi.status, 200);
     assert.match(await swaggerUi.text(), /KOMAR RFID Inventory API/);
   } finally {

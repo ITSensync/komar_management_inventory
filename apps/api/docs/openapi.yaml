@@ -12,6 +12,8 @@ tags:
   - name: RFID Tags
   - name: PO Sessions
   - name: Label Printing
+  - name: Racks
+  - name: Site Employee Placement
 paths:
   /health:
     get:
@@ -446,6 +448,153 @@ paths:
       responses:
         '200':
           description: Print job and pack plans updated
+  /api/racks:
+    get:
+      tags: [Racks]
+      summary: List warehouse racks
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, inactive]
+      responses:
+        '200':
+          description: Rack list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RackListResponse'
+    post:
+      tags: [Racks]
+      summary: Create a rack from Admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RackCreateInput'
+      responses:
+        '201':
+          description: Rack created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RackResponse'
+        '400':
+          $ref: '#/components/responses/ProductValidationError'
+        '409':
+          description: Rack code is already registered
+  /api/racks/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [Racks]
+      summary: Get a rack
+      responses:
+        '200':
+          description: Rack detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RackResponse'
+        '404':
+          description: Rack not found
+    patch:
+      tags: [Racks]
+      summary: Update or deactivate a rack
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RackUpdateInput'
+      responses:
+        '200':
+          description: Rack updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RackResponse'
+        '404':
+          description: Rack not found
+  /api/mobile/racks:
+    get:
+      tags: [Site Employee Placement]
+      summary: List active racks for mobile
+      description: Mobile can select a rack but cannot create or modify master racks.
+      responses:
+        '200':
+          description: Active rack list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RackListResponse'
+  /api/mobile/placements/preview:
+    post:
+      tags: [Site Employee Placement]
+      summary: Validate scanned RFID numbers without changing inventory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlacementPreviewRequest'
+      responses:
+        '200':
+          description: Preview result
+        '400':
+          description: Invalid RFID list
+  /api/mobile/placements:
+    post:
+      tags: [Site Employee Placement]
+      summary: Place scanned repack products into an active rack
+      description: Atomically changes every submitted pack plan from unplaced to placed and records one movement per RFID.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlacementRequest'
+      responses:
+        '201':
+          description: Placement completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlacementResponse'
+        '400':
+          description: Request validation failed
+        '404':
+          description: Rack not found
+        '409':
+          description: Rack, RFID, or idempotency conflict
+  /api/mobile/placements/history:
+    get:
+      tags: [Site Employee Placement]
+      summary: List simple placement history for mobile
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Placement history
 components:
   parameters:
     ProductId:
@@ -846,9 +995,155 @@ components:
           example: E2806894000040168D432183
         code:
           type: string
-          enum: [invalid_uid, duplicate_in_request, already_registered]
+        enum: [invalid_uid, duplicate_in_request, already_registered]
         message:
           type: string
+    Rack:
+      type: object
+      required: [id, code, name, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          maxLength: 100
+          example: RAK-01
+        name:
+          type: string
+          maxLength: 255
+          example: Rak Susu
+        description:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [active, inactive]
+    RackCreateInput:
+      type: object
+      required: [code, name]
+      properties:
+        code:
+          type: string
+          example: RAK-01
+        name:
+          type: string
+          example: Rak Susu
+        description:
+          type: string
+          nullable: true
+    RackUpdateInput:
+      type: object
+      minProperties: 1
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [active, inactive]
+    RackResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/Rack'
+    RackListResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Rack'
+    PlacementPreviewRequest:
+      type: object
+      required: [rfid_numbers]
+      properties:
+        rfid_numbers:
+          type: array
+          minItems: 1
+          items:
+            type: string
+          example: [E2806894000040168D432183, E2806894000040168D43218C]
+    PlacementRequest:
+      type: object
+      required: [rack_id, rfid_numbers, client_request_id]
+      properties:
+        rack_id:
+          type: string
+          format: uuid
+        rfid_numbers:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        client_request_id:
+          type: string
+          maxLength: 100
+          description: Stable ID generated by mobile and reused for safe retries.
+    PlacementResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+        reused:
+          type: boolean
+        data:
+          type: object
+          required: [client_request_id, rack, total_placed, placed_at, items]
+          properties:
+            client_request_id:
+              type: string
+            rack:
+              $ref: '#/components/schemas/Rack'
+            total_placed:
+              type: integer
+            placed_at:
+              type: string
+              format: date-time
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/PlacementItem'
+    PlacementItem:
+      type: object
+      required: [rfid_number, rfid_tag_id, pack_plan_id, pack_number, product_id, sku, product_name, placement_status]
+      properties:
+        rfid_number:
+          type: string
+        rfid_tag_id:
+          type: integer
+        pack_plan_id:
+          type: string
+          format: uuid
+        pack_number:
+          type: integer
+        label_code:
+          type: string
+        product_id:
+          type: string
+          format: uuid
+        sku:
+          type: string
+        product_name:
+          type: string
+        expires_on:
+          type: string
+          format: date
+          nullable: true
+        placement_status:
+          type: string
+          enum: [unplaced, placed, outbound, trash]
     SuccessMessage:
       type: object
       required: [success, message]

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Barcode, FileText, LayoutDashboard, Tags } from "lucide-react";
+import { Barcode, FileText, LayoutDashboard, Tags, Warehouse } from "lucide-react";
 import type { ReactNode } from "react";
 
 const navigation = [
@@ -10,6 +10,7 @@ const navigation = [
   { href: "/app/admin/katalog", label: "Katalog produk", icon: Tags },
   { href: "/app/admin/purchase-orders", label: "Session PO", icon: FileText },
   { href: "/app/admin/tags", label: "Inventaris RFID", icon: Barcode },
+  { href: "/app/admin/racks", label: "Master rak", icon: Warehouse },
 ];
 
 export function AdminShell({ children }: { children: ReactNode }) {

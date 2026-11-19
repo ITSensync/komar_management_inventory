@@ -76,11 +76,34 @@ export type Product = {
 };
 
 export type RfidTag = { id: number; rfid_number: string; status: string; created_at?: string };
+export type Rack = { id: string; code: string; name: string; description?: string | null; status: "active" | "inactive" | string; created_at?: string; updated_at?: string };
+export type PlacementItem = {
+  rfid_number: string;
+  rfid_tag_id: number;
+  pack_plan_id: string;
+  pack_number: number;
+  label_code?: string;
+  product_id: string;
+  sku: string;
+  product_name: string;
+  expires_on?: string | null;
+  placement_status: string;
+  current_rack?: Rack | null;
+};
+export type PlacementResponse = {
+  client_request_id: string;
+  rack: Rack;
+  total_placed: number;
+  placed_at: string;
+  items: PlacementItem[];
+};
 export type PackPlan = {
   id: string;
   sequence_number: number;
   units: number;
   status: "pending_tag" | "tag_assigned" | "label_printed" | "cancelled" | string;
+  placement_status?: "unplaced" | "placed" | "outbound" | "trash" | string;
+  currentRack?: Rack | null;
   label_code?: string;
   rfidTag?: RfidTag | null;
 };

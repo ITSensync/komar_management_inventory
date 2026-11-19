@@ -1,4 +1,5 @@
 const { sequelize } = require('../models');
+const { DataTypes } = require('sequelize');
 
 const alter = process.argv.includes('--alter');
 
@@ -7,6 +8,7 @@ async function syncDatabase() {
     await sequelize.authenticate();
     if (alter) await migratePoSessionStatuses();
     await sequelize.sync({ alter });
+    await migratePlacementSchema();
     if (alter) await migrateLegacyPoRepackFields();
     console.log(`Database schema ${alter ? 'updated' : 'created'} successfully.`);
   } catch (error) {
@@ -14,6 +16,52 @@ async function syncDatabase() {
     process.exitCode = 1;
   } finally {
     await sequelize.close();
+  }
+}
+
+async function migratePlacementSchema() {
+  // `sequelize.sync()` creates the new tables on a fresh database, but the
+  // normal non-alter startup must also be able to add these columns to an
+  // existing PO database without rewriting unrelated tables.
+  const queryInterface = sequelize.getQueryInterface();
+  const columns = await queryInterface.describeTable('po_pack_plans');
+
+  if (!columns.placement_status) {
+    await queryInterface.addColumn('po_pack_plans', 'placement_status', {
+      type: DataTypes.ENUM('unplaced', 'placed', 'outbound', 'trash'),
+      allowNull: false,
+      defaultValue: 'unplaced',
+    });
+  }
+  if (!columns.current_rack_id) {
+    await queryInterface.addColumn('po_pack_plans', 'current_rack_id', {
+      type: DataTypes.UUID,
+      allowNull: true,
+    });
+  }
+
+  const indexes = await queryInterface.showIndex('po_pack_plans');
+  const hasIndex = (field) => indexes.some((index) => index.fields && index.fields.length === 1 && index.fields[0].attribute === field);
+  if (!hasIndex('placement_status')) await queryInterface.addIndex('po_pack_plans', ['placement_status'], { name: 'po_pack_plans_placement_status_idx' });
+  if (!hasIndex('current_rack_id')) await queryInterface.addIndex('po_pack_plans', ['current_rack_id'], { name: 'po_pack_plans_current_rack_idx' });
+
+  const [constraints] = await sequelize.query(`
+    SELECT CONSTRAINT_NAME
+    FROM information_schema.KEY_COLUMN_USAGE
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'po_pack_plans'
+      AND COLUMN_NAME = 'current_rack_id'
+      AND REFERENCED_TABLE_NAME = 'racks'
+  `);
+  if (!constraints.length) {
+    await queryInterface.addConstraint('po_pack_plans', {
+      fields: ['current_rack_id'],
+      type: 'foreign key',
+      name: 'po_pack_plans_current_rack_fk',
+      references: { table: 'racks', field: 'id' },
+      onUpdate: 'CASCADE',
+      onDelete: 'SET NULL',
+    });
   }
 }
 

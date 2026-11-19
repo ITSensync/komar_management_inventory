@@ -68,10 +68,40 @@ const PoPackPlan = sequelize.define('PoPackPlan', {
   rfid_tag_id: { type: DataTypes.INTEGER, unique: true },
   label_code: { type: DataTypes.STRING(100), allowNull: false, unique: true },
   status: { type: DataTypes.ENUM('pending_tag', 'tag_assigned', 'label_printed', 'cancelled'), allowNull: false, defaultValue: 'pending_tag' },
+  // Admin PO/label lifecycle remains in `status`. Placement is a separate
+  // lifecycle so adding warehouse operations does not break the existing flow.
+  placement_status: { type: DataTypes.ENUM('unplaced', 'placed', 'outbound', 'trash'), allowNull: false, defaultValue: 'unplaced' },
+  current_rack_id: { type: DataTypes.UUID, allowNull: true },
   assigned_at: DataTypes.DATE,
 }, options('po_pack_plans', [
   { unique: true, fields: ['po_session_item_id', 'sequence_number'] },
   { fields: ['po_session_item_id', 'status'] },
+]));
+
+const Rack = sequelize.define('Rack', {
+  id: uuid,
+  code: { type: DataTypes.STRING(100), allowNull: false, unique: true },
+  name: { type: DataTypes.STRING(255), allowNull: false },
+  description: DataTypes.TEXT,
+  status: { type: DataTypes.ENUM('active', 'inactive'), allowNull: false, defaultValue: 'active' },
+}, options('racks', [{ fields: ['status', 'code'] }]));
+
+const InventoryMovement = sequelize.define('InventoryMovement', {
+  id: uuid,
+  po_pack_plan_id: { type: DataTypes.UUID, allowNull: false },
+  rfid_tag_id: { type: DataTypes.INTEGER, allowNull: false },
+  movement_type: { type: DataTypes.ENUM('placement', 'relocation', 'outbound', 'trash'), allowNull: false, defaultValue: 'placement' },
+  from_rack_id: { type: DataTypes.UUID, allowNull: true },
+  to_rack_id: { type: DataTypes.UUID, allowNull: true },
+  performed_by: { type: DataTypes.STRING(100), allowNull: true },
+  source: { type: DataTypes.STRING(50), allowNull: false, defaultValue: 'mobile' },
+  client_request_id: { type: DataTypes.STRING(100), allowNull: true },
+  metadata: { type: DataTypes.JSON, allowNull: true },
+}, options('inventory_movements', [
+  { unique: true, fields: ['client_request_id', 'po_pack_plan_id'] },
+  { fields: ['po_pack_plan_id', 'created_at'] },
+  { fields: ['to_rack_id', 'created_at'] },
+  { fields: ['rfid_tag_id', 'created_at'] },
 ]));
 
 const LabelPrintJob = sequelize.define('LabelPrintJob', {
@@ -155,6 +185,16 @@ LabelPrintJob.hasMany(LabelPrintItem, { foreignKey: 'label_print_job_id', as: 'i
 LabelPrintItem.belongsTo(LabelPrintJob, { foreignKey: 'label_print_job_id', as: 'job' });
 PoPackPlan.hasMany(LabelPrintItem, { foreignKey: 'po_pack_plan_id', as: 'labelPrintItems' });
 LabelPrintItem.belongsTo(PoPackPlan, { foreignKey: 'po_pack_plan_id', as: 'packPlan' });
+Rack.hasMany(PoPackPlan, { foreignKey: 'current_rack_id', as: 'currentPackPlans' });
+PoPackPlan.belongsTo(Rack, { foreignKey: 'current_rack_id', as: 'currentRack' });
+PoPackPlan.hasMany(InventoryMovement, { foreignKey: 'po_pack_plan_id', as: 'movements' });
+InventoryMovement.belongsTo(PoPackPlan, { foreignKey: 'po_pack_plan_id', as: 'packPlan' });
+RfidTag.hasMany(InventoryMovement, { foreignKey: 'rfid_tag_id', as: 'movements' });
+InventoryMovement.belongsTo(RfidTag, { foreignKey: 'rfid_tag_id', as: 'rfidTag' });
+Rack.hasMany(InventoryMovement, { foreignKey: 'from_rack_id', as: 'outgoingMovements' });
+InventoryMovement.belongsTo(Rack, { foreignKey: 'from_rack_id', as: 'fromRack' });
+Rack.hasMany(InventoryMovement, { foreignKey: 'to_rack_id', as: 'incomingMovements' });
+InventoryMovement.belongsTo(Rack, { foreignKey: 'to_rack_id', as: 'toRack' });
 
 module.exports = {
   sequelize,
@@ -167,4 +207,6 @@ module.exports = {
   RfidTag,
   RfidScanSession,
   RfidScanEvent,
+  Rack,
+  InventoryMovement,
 };

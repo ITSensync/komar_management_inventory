@@ -1,9 +1,10 @@
-# ERD KOMAR — Current Admin PO/RFID/Label Scope
+# ERD KOMAR — Admin PO/RFID dan Placement Site Employee
 
 > Dokumen ini menggambarkan schema yang aktif saat ini. Scope yang didukung adalah
-> katalog produk, persiapan session PO, assignment RFID, pencetakan label, dan scan
-> realtime melalui Orange Pi. Receiving gudang, lokasi/rak, opname, relokasi,
-> outbound, autentikasi, dan multi-site belum termasuk dalam schema aktif.
+> katalog produk, persiapan session PO, assignment RFID, pencetakan label, scan
+> realtime melalui Orange Pi, master rak, dan placement repack oleh site employee.
+> Relocation, opname, outbound, trash workflow, reuse RFID, autentikasi, dan
+> multi-site belum menjadi workflow aktif.
 
 ## Tabel aktif
 
@@ -18,6 +19,8 @@
 | `label_print_items` | Snapshot setiap label di dalam print job. |
 | `rfid_scan_sessions` | Satu sesi pembacaan RFID realtime dari reader. |
 | `rfid_scan_events` | Log setiap event UID dari reader, termasuk hasil dan error. |
+| `racks` | Master rak yang dibuat Admin dan dipilih mobile. |
+| `inventory_movements` | Histori placement saat ini dan fondasi movement masa depan. |
 
 ## Relasi
 
@@ -27,6 +30,10 @@ erDiagram
     PO_SESSIONS ||--o{ PO_SESSION_ITEMS : "memiliki"
     PO_SESSION_ITEMS ||--o{ PO_PACK_PLANS : "membuat"
     RFID_TAGS ||--o| PO_PACK_PLANS : "dipasangkan ke"
+    RACKS ||--o{ PO_PACK_PLANS : "menjadi rak aktif"
+    PO_PACK_PLANS ||--o{ INVENTORY_MOVEMENTS : "memiliki histori"
+    RFID_TAGS ||--o{ INVENTORY_MOVEMENTS : "tercatat pada"
+    RACKS ||--o{ INVENTORY_MOVEMENTS : "menjadi tujuan"
 
     PO_SESSIONS ||--o{ LABEL_PRINT_JOBS : "memiliki"
     PO_SESSION_ITEMS ||--o{ LABEL_PRINT_JOBS : "dicetak sebagai"
@@ -63,6 +70,8 @@ erDiagram
         int rfid_tag_id FK
         int sequence_number
         enum status
+        enum placement_status
+        uuid current_rack_id FK
     }
     RFID_TAGS {
         int id PK
@@ -96,6 +105,23 @@ erDiagram
         string rfid_number
         enum status
     }
+    RACKS {
+        uuid id PK
+        string code UK
+        string name
+        enum status
+    }
+    INVENTORY_MOVEMENTS {
+        uuid id PK
+        uuid po_pack_plan_id FK
+        int rfid_tag_id FK
+        enum movement_type
+        uuid from_rack_id FK
+        uuid to_rack_id FK
+        string client_request_id
+        string source
+        datetime created_at
+    }
 ```
 
 ## Alur data utama
@@ -108,6 +134,15 @@ products
   → rfid_tags
   → label_print_jobs
   → label_print_items
+
+Placement site employee:
+
+```text
+rfid_tags
+  → po_pack_plans (placement_status: unplaced → placed)
+  → racks (current_rack_id)
+  → inventory_movements (placement history)
+```
 ```
 
 Saat hardware digunakan, alurnya adalah:

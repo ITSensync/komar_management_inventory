@@ -65,19 +65,21 @@ API menggunakan `npm` dan web menggunakan `pnpm`; masing-masing lockfile diperta
 
 ## Dokumentasi
 
-Implementasi aktif saat ini berfokus pada alur Admin:
+Implementasi aktif saat ini berfokus pada alur Admin dan placement awal Site Employee:
 
 ```text
-Produk → Session PO → RFID → Label
+Produk → Session PO → RFID → Label → Scan mobile → Pilih rak → Placement
 ```
 
-Receiving gudang, lokasi/rak, opname, relokasi, outbound, mobile, autentikasi, dan
-multi-site masih berada pada roadmap dan belum menjadi bagian dari schema aktif.
+Opname, relokasi, outbound, trash workflow, reuse RFID, autentikasi, dan multi-site
+masih berada pada roadmap. Mobile React Native berada di repo terpisah dan
+menggunakan API repo ini.
 
 - [Arsitektur dan batas layanan](docs/ARCHITECTURE.md)
 - [PRD](docs/PRD_KOMAR_Inventory_Management.md)
 - [Kontrak frontend PO/RFID](docs/api/frontend-po-rfid-guide.md)
 - [Panduan backend repack](docs/api/backend-po-repack-guide.md)
+- [Kontrak mobile site employee](docs/mobile/site-employee-placement-integration.md)
 - [OpenAPI](apps/api/docs/openapi.yaml) — sumber kebenaran endpoint yang juga disajikan oleh Swagger.
 - [ERD](docs/database/ERD_KOMAR_Inventory_Management.md)
 - [Integrasi Orange Pi RFID USB Serial](docs/hardware/orangepi-rfid-websocket.md)

@@ -200,6 +200,38 @@ Scan UID untuk satu item menggunakan `rfid_tags`. UID baru akan disimpan dan lan
 
 Setelah semua UID yang dibutuhkan terpasang, buat job label dengan `{ "format": "pdf" }` atau `{ "format": "zpl" }`. Respons job berisi snapshot label (SKU, produk, expiry, jumlah per paket, nomor paket, UID RFID, dan `label_code`) yang dapat dirender/dikirim oleh frontend atau print bridge. Endpoint `mark-printed` hanya dipanggil setelah printer menyelesaikan cetak.
 
+### 8. Site employee placement
+
+Rak dibuat oleh Admin melalui endpoint berikut:
+
+```text
+GET    /api/racks
+POST   /api/racks
+GET    /api/racks/:id
+PATCH  /api/racks/:id
+```
+
+Mobile hanya mengambil rak active, memvalidasi RFID yang discan, lalu submit placement batch:
+
+```text
+GET  /api/mobile/racks?status=active
+POST /api/mobile/placements/preview
+POST /api/mobile/placements
+GET  /api/mobile/placements/history
+```
+
+Contoh final placement:
+
+```json
+{
+  "rack_id": "RACK_UUID",
+  "rfid_numbers": ["E2806894000040168D432183", "E2806894000040168D43218C"],
+  "client_request_id": "MOBILE-UUID"
+}
+```
+
+Backend hanya menerima RFID yang sudah terdaftar dan pack plan yang masih `unplaced`. Proses final bersifat atomik: setiap pack plan berubah menjadi `placed`, `current_rack_id` diisi, dan satu histori `inventory_movement` dibuat per RFID. `client_request_id` harus dipakai ulang ketika mobile melakukan retry setelah timeout.
+
 Status session PO adalah `active`, `completed`, atau `cancelled`. Label yang tercetak hanya menyelesaikan item terkait; session tetap `active` dan admin masih dapat menambahkan item baru. Admin memakai `POST /api/po-sessions/:id/complete` untuk menutup session secara manual setelah seluruh item memiliki label tercetak.
 
 ## Project Structure
