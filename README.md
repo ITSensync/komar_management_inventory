@@ -65,6 +65,15 @@ API menggunakan `npm` dan web menggunakan `pnpm`; masing-masing lockfile diperta
 
 ## Dokumentasi
 
+Implementasi aktif saat ini berfokus pada alur Admin:
+
+```text
+Produk → Session PO → RFID → Label
+```
+
+Receiving gudang, lokasi/rak, opname, relokasi, outbound, mobile, autentikasi, dan
+multi-site masih berada pada roadmap dan belum menjadi bagian dari schema aktif.
+
 - [Arsitektur dan batas layanan](docs/ARCHITECTURE.md)
 - [PRD](docs/PRD_KOMAR_Inventory_Management.md)
 - [Kontrak frontend PO/RFID](docs/api/frontend-po-rfid-guide.md)

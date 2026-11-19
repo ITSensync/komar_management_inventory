@@ -354,6 +354,34 @@ async function createPrintJob(itemId, input) {
     if (plans.length !== item.required_rfid_count || plans.some((plan) => !plan.rfid_tag_id)) {
       return failure(409, 'All required RFID tags must be assigned before labels can be generated.');
     }
+
+    // Creating the initial job is idempotent for an item. The item row is
+    // locked above, so concurrent requests are serialized and cannot create
+    // duplicate initial jobs. Reprints intentionally use a separate endpoint
+    // and continue to create a new job with job_type="reprint".
+    const existingInitialJob = await LabelPrintJob.findOne({
+      where: {
+        po_session_item_id: item.id,
+        job_type: 'initial',
+        status: { [Op.in]: ['generated', 'printed'] },
+      },
+      order: [['createdAt', 'DESC']],
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+    if (existingInitialJob) {
+      const existingJob = await getPrintJobInTransaction(existingInitialJob.id, transaction);
+      return {
+        status: 200,
+        body: {
+          success: true,
+          data: existingJob,
+          reused: true,
+          message: 'The existing initial print job was returned.',
+        },
+      };
+    }
+
     const job = await createPrintJobForPlans({ session, item, plans, format: format.data, jobType: 'initial', transaction });
     return { status: 201, body: { success: true, data: job } };
   });

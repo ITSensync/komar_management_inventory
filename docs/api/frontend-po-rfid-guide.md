@@ -876,7 +876,10 @@ Format tersedia:
 
 **Digunakan ketika:** semua RFID item sudah lengkap dan admin menekan **Buat Label**.
 
-Backend menolak bila masih ada RFID yang belum terpasang.
+Backend menolak bila masih ada RFID yang belum terpasang. Jika item sudah memiliki
+initial print job berstatus `generated` atau `printed`, backend mengembalikan job
+yang sama dan tidak membuat row baru. Response untuk job baru adalah `201`, sedangkan
+response untuk job yang digunakan ulang adalah `200` dengan `reused: true`.
 
 ### 10.2 Ambil data label dari print job
 
@@ -919,7 +922,11 @@ Contoh `label_snapshot`:
 
 **Jangan memanggil `mark-printed` sebelum printer benar-benar sukses.** Jika browser gagal, printer offline, atau kertas habis, biarkan job tetap `generated` dan tawarkan tombol coba cetak lagi.
 
-Untuk menghindari job ganda, nonaktifkan tombol **Buat Label** selama request sedang berlangsung dan selama item sudah mempunyai print job `generated`. Backend saat ini belum menolak pembuatan initial print job kedua secara otomatis.
+Untuk menghindari job ganda, nonaktifkan tombol **Buat Label** selama request sedang
+berlangsung dan selama item sudah mempunyai print job `generated`. Backend juga
+melindungi endpoint ini: request ulang untuk initial job yang sudah `generated` atau
+`printed` menggunakan job yang sama. Endpoint **Cetak Ulang** tetap membuat job baru
+dengan `job_type: reprint`.
 
 ### 10.4 Tandai print job sukses tercetak
 
