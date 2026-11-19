@@ -8,6 +8,7 @@
     "dev": "nodemon server.js",
     "db:sync": "node scripts/syncDatabase.js",
     "db:sync:alter": "node scripts/syncDatabase.js --alter",
+    "db:prune-unused": "node scripts/pruneUnusedWorkflowTables.js",
     "test": "node --test"
   },
   "keywords": [

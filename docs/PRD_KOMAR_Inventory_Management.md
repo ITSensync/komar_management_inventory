@@ -2,7 +2,38 @@
 
 **Versi:** Draft 1.2 · 9 November 2026  
 **Audiens:** Product owner, admin gudang, tim web, tim mobile, backend, QA, dan operasional lapangan  
-**Status:** Untuk peninjauan alur dan keputusan perangkat yang tersisa
+**Status:** Dokumen target roadmap; implementasi aktif saat ini dibatasi pada Admin PO/RFID/Label
+
+## 0. Batas implementasi saat ini
+
+Bagian yang sudah tersedia dan menjadi fokus release saat ini:
+
+```text
+Produk → Session PO → Item PO → Pack plan → RFID → Label → Complete/Cancel
+```
+
+Implementasi aktif mencakup:
+
+- katalog produk dan konfigurasi kemasan supplier/repack;
+- pembuatan dan pengelolaan session PO;
+- kalkulasi jumlah pack plan/RFID;
+- assignment RFID manual atau realtime melalui Orange Pi;
+- pembuatan, preview, konfirmasi cetak, dan cetak ulang label;
+- penyelesaian atau pembatalan session.
+
+Database aktif hanya memakai tabel PO/RFID/label/scan yang dijelaskan pada
+`docs/database/ERD_KOMAR_Inventory_Management.md`.
+
+Fitur berikut tetap menjadi rencana fase berikutnya dan belum tersedia pada release ini:
+
+- receiving dan repacking oleh site employee;
+- lokasi/rak, penempatan, opname, dan relokasi;
+- outbound dan pelepasan tag;
+- login, role, authorization, audit log, dan multi-site;
+- aplikasi mobile React Native.
+
+Bagian-bagian berikutnya dalam PRD menjelaskan target produk yang lebih luas. Jangan
+menafsirkan requirement future phase sebagai endpoint, tabel, atau menu yang sudah aktif.
 
 ## 1. Ringkasan dan keputusan produk
 

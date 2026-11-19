@@ -39,7 +39,14 @@ berada di `docs/hardware/orangepi-rfid-websocket.md`.
 
 ## Keamanan dan batas saat ini
 
-Dokumen PRD memuat target autentikasi JWT, role, multi-site, dan idempotency. Model database awal telah ada, tetapi route autentikasi, authorization middleware, serta idempotency middleware belum tersedia pada API. Jangan mengekspos API ke internet sebelum fitur tersebut diimplementasikan dan diuji.
+Implementasi aktif saat ini berfokus pada katalog produk, session PO, assignment RFID,
+label, dan scan realtime. Schema aktif hanya terdiri dari tabel-tabel pada ERD current
+scope. Autentikasi JWT, role/authorization, multi-site, mobile warehouse, receiving,
+opname, relokasi, outbound, dan audit trail masih merupakan target fase berikutnya;
+fitur tersebut tidak boleh dianggap tersedia hanya karena tercantum pada PRD.
+
+API saat ini tidak boleh diekspos ke internet tanpa lapisan autentikasi dan otorisasi
+yang sesuai.
 
 ## Sumber kebenaran
 

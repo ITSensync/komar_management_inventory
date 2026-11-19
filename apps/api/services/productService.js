@@ -1,5 +1,5 @@
 const { ForeignKeyConstraintError, UniqueConstraintError } = require('sequelize');
-const { InboundReceiptLine, Lot, OutboundLine, PoSessionItem, Product } = require('../models');
+const { PoSessionItem, Product } = require('../models');
 const { normalizeProduct } = require('../utils/products');
 
 function validationResult(errors) {
@@ -65,9 +65,6 @@ async function deleteProduct(id) {
   if (!product) return { status: 404, body: { success: false, message: 'Product not found.' } };
 
   const references = await Promise.all([
-    Lot.count({ where: { product_id: id } }),
-    InboundReceiptLine.count({ where: { product_id: id } }),
-    OutboundLine.count({ where: { product_id: id } }),
     PoSessionItem.count({ where: { product_id: id } }),
   ]);
   if (references.some(Boolean)) {

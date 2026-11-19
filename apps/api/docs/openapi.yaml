@@ -400,7 +400,9 @@ paths:
               $ref: '#/components/schemas/PrintFormatInput'
       responses:
         '201':
-          description: Print job with immutable label snapshots
+          description: New initial print job with immutable label snapshots
+        '200':
+          description: Existing generated or printed initial print job reused; response includes reused=true
         '409':
           description: Required RFID assignments are incomplete
   /api/po-pack-plans/{id}/rfid:
