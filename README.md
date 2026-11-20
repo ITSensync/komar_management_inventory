@@ -87,8 +87,9 @@ Implementasi aktif saat ini berfokus pada alur Admin dan placement awal Site Emp
 Produk → Session PO → RFID → Label → Scan mobile → Pilih rak → Placement
 ```
 
-Opname, relokasi, outbound, trash workflow, reuse RFID, autentikasi, dan multi-site
-masih berada pada roadmap. Mobile React Native berada di repo terpisah dan
+Opname, autentikasi, dan multi-site masih berada pada roadmap. Placement,
+relocation, outbound, trash workflow, dan reuse RFID mengikuti lifecycle RFID
+yang ketat. Mobile React Native berada di repo terpisah dan
 menggunakan API repo ini.
 
 - [Arsitektur dan batas layanan](docs/ARCHITECTURE.md)

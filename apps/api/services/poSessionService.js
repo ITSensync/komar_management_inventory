@@ -240,10 +240,34 @@ async function scanRfidTags(itemId, rfidTags, externalTransaction = null) {
         lock: transaction.LOCK.UPDATE,
       });
 
+      if (!tag) {
+        errors.push({
+          ...scannedTag,
+          code: 'RFID_NOT_REGISTERED',
+          message: 'RFID UID must be registered by Admin before assignment.',
+        });
+        continue;
+      }
+
       if (tag && tag.status !== 'available') {
         errors.push({ ...scannedTag, code: 'already_assigned', message: 'RFID UID is already assigned to another process.' });
         continue;
       }
+
+      const existingPlan = await PoPackPlan.findOne({
+        where: { rfid_tag_id: tag.id },
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+      if (existingPlan) {
+        errors.push({
+          ...scannedTag,
+          code: 'RFID_REUSE_NOT_RELEASED',
+          message: 'RFID UID cannot be reused until its previous outbound or trash lifecycle is released.',
+        });
+        continue;
+      }
+
       const plan = availablePlans.shift();
       if (!plan) {
         errors.push({ ...scannedTag, code: 'no_remaining_pack', message: 'This item already has all required RFID tags.' });
@@ -251,11 +275,7 @@ async function scanRfidTags(itemId, rfidTags, externalTransaction = null) {
       }
 
       try {
-        if (tag) {
-          await tag.update({ status: 'assigned_to_po' }, { transaction });
-        } else {
-          tag = await RfidTag.create({ rfid_number: scannedTag.rfid_number, status: 'assigned_to_po' }, { transaction });
-        }
+        await tag.update({ status: 'assigned_to_po' }, { transaction });
       } catch (error) {
         if (!(error instanceof UniqueConstraintError)) throw error;
         availablePlans.unshift(plan);

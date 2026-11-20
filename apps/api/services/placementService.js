@@ -10,6 +10,8 @@ const {
 } = require('../models');
 const { normalizeRfidTags } = require('../utils/rfidTags');
 const { normalizePlacementRequest } = require('../utils/placement');
+const { normalizeInventoryActionRequest } = require('../utils/inventoryActions');
+const { canClose, canRelocate, canReuse } = require('../utils/rfidLifecycle');
 
 function failure(status, message, errors) {
   return { status, body: { success: false, message, ...(errors ? { errors } : {}) } };
@@ -41,16 +43,34 @@ function itemSummary(plan, tag, rack) {
   };
 }
 
-async function getExistingRequest(clientRequestId) {
+async function getExistingRequest(clientRequestId, movementType = 'placement') {
   return InventoryMovement.findAll({
-    where: { client_request_id: clientRequestId, movement_type: 'placement' },
+    where: { client_request_id: clientRequestId, movement_type: movementType },
     include: [
       { model: Rack, as: 'toRack', attributes: ['id', 'code', 'name'] },
+      { model: Rack, as: 'fromRack', attributes: ['id', 'code', 'name'] },
       { model: RfidTag, as: 'rfidTag', attributes: ['id', 'rfid_number'] },
       { model: PoPackPlan, as: 'packPlan', include: planInclude() },
     ],
     order: [['createdAt', 'ASC']],
   });
+}
+
+async function getConflictingRequest(clientRequestId, movementType) {
+  return InventoryMovement.findOne({
+    where: {
+      client_request_id: clientRequestId,
+      movement_type: { [Op.ne]: movementType },
+    },
+    attributes: ['id', 'movement_type'],
+  });
+}
+
+function idempotencyConflict() {
+  return failure(409, 'client_request_id was already used for a different inventory action.', [{
+    code: 'IDEMPOTENCY_KEY_REUSED',
+    message: 'Use a new client_request_id for a different batch or action.',
+  }]);
 }
 
 function existingRequestResponse(movements, request) {
@@ -81,6 +101,37 @@ function existingRequestResponse(movements, request) {
   };
 }
 
+function existingMovementResponse(movements, request, movementType) {
+  const requested = [...request.rfid_numbers].sort();
+  const existing = movements.map((movement) => movement.rfidTag.rfid_number).sort();
+  const sameRack = movements.every((movement) => (movement.to_rack_id || null) === (request.rack_id || null));
+  if (!sameRack || requested.join('|') !== existing.join('|')) {
+    return failure(409, 'client_request_id was already used for a different inventory action.', [{
+      code: 'IDEMPOTENCY_KEY_REUSED',
+      message: 'Use a new client_request_id for a different batch or action.',
+    }]);
+  }
+
+  const first = movements[0];
+  return {
+    status: 200,
+    body: {
+      success: true,
+      reused: true,
+      data: {
+        client_request_id: request.client_request_id,
+        movement_type: movementType,
+        from_rack: first.fromRack || null,
+        rack: first.toRack || null,
+        total_processed: movements.length,
+        processed_at: first.createdAt,
+        items: movements.map((movement) => itemSummary(movement.packPlan, movement.rfidTag, movement.toRack)),
+      },
+      message: `The ${movementType} request was already completed.`,
+    },
+  };
+}
+
 async function previewPlacement(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return failure(400, 'Validation failed.', [{ field: 'body', message: 'Placement data must be an object.' }]);
@@ -103,10 +154,15 @@ async function previewPlacement(input) {
     const plan = plansByTagId.get(tag.id);
     if (!plan) return { rfid_number: rfidNumber, eligible: false, error_code: 'PACK_PLAN_NOT_FOUND', message: 'RFID tag is not assigned to a pack plan.' };
     const eligible = plan.placement_status === 'unplaced' && plan.status !== 'cancelled';
+    const errorCode = canReuse(plan.placement_status)
+      ? 'RFID_ACTION_ALREADY_COMPLETED'
+      : plan.status === 'cancelled'
+        ? 'PACK_PLAN_CANCELLED'
+        : 'RFID_ALREADY_PLACED';
     return {
       ...itemSummary(plan, tag, null),
       eligible,
-      ...(eligible ? {} : { error_code: 'RFID_ALREADY_PLACED', message: 'This RFID is not eligible for placement.' }),
+      ...(eligible ? {} : { error_code: errorCode, message: 'This RFID is not eligible for placement.' }),
     };
   });
   return { status: 200, body: { success: true, data: { eligible: items.every((item) => item.eligible), items } } };
@@ -116,6 +172,7 @@ async function createPlacement(input) {
   const normalized = normalizePlacementRequest(input);
   if (normalized.errors.length) return failure(400, 'Validation failed.', normalized.errors);
   const request = normalized.data;
+  if (await getConflictingRequest(request.client_request_id, 'placement')) return idempotencyConflict();
   const existing = await getExistingRequest(request.client_request_id);
   if (existing.length) return existingRequestResponse(existing, request);
 
@@ -146,6 +203,10 @@ async function createPlacement(input) {
       }
       if (plan.status === 'cancelled') {
         errors.push({ rfid_number: rfidNumber, code: 'PACK_PLAN_CANCELLED', message: 'This pack plan is cancelled.' });
+        continue;
+      }
+      if (canReuse(plan.placement_status)) {
+        errors.push({ rfid_number: rfidNumber, code: 'RFID_ACTION_ALREADY_COMPLETED', message: 'This RFID lifecycle is already outbound or trash and cannot be placed again.' });
         continue;
       }
       if (plan.placement_status !== 'unplaced' || plan.current_rack_id) {
@@ -195,13 +256,178 @@ async function createPlacement(input) {
   });
 }
 
+async function createRelocation(input) {
+  const normalized = normalizePlacementRequest(input);
+  if (normalized.errors.length) return failure(400, 'Validation failed.', normalized.errors);
+  const request = normalized.data;
+  if (await getConflictingRequest(request.client_request_id, 'relocation')) return idempotencyConflict();
+  const existing = await getExistingRequest(request.client_request_id, 'relocation');
+  if (existing.length) return existingMovementResponse(existing, request, 'relocation');
+
+  return sequelize.transaction(async (transaction) => {
+    const rack = await Rack.findByPk(request.rack_id, { transaction, lock: transaction.LOCK.UPDATE });
+    if (!rack) return failure(404, 'Rack not found.', [{ field: 'rack_id', code: 'RACK_NOT_FOUND', message: 'Rack does not exist.' }]);
+    if (rack.status !== 'active') return failure(409, 'Rack is inactive.', [{ field: 'rack_id', code: 'RACK_INACTIVE', message: 'Choose an active rack.' }]);
+
+    const records = [];
+    const errors = [];
+    for (const rfidNumber of [...request.rfid_numbers].sort()) {
+      const tag = await RfidTag.findOne({ where: { rfid_number: rfidNumber }, transaction, lock: transaction.LOCK.UPDATE });
+      if (!tag) {
+        errors.push({ rfid_number: rfidNumber, code: 'RFID_NOT_REGISTERED', message: 'RFID tag is not registered.' });
+        continue;
+      }
+      const plan = await PoPackPlan.findOne({
+        where: { rfid_tag_id: tag.id },
+        include: planInclude(),
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+      if (!plan) {
+        errors.push({ rfid_number: rfidNumber, code: 'PACK_PLAN_NOT_FOUND', message: 'RFID tag is not assigned to a pack plan.' });
+        continue;
+      }
+      if (!canRelocate(plan.placement_status)) {
+        errors.push({ rfid_number: rfidNumber, code: 'RFID_NOT_PLACED', message: 'Only a placed RFID can be relocated.' });
+        continue;
+      }
+      if (!plan.current_rack_id) {
+        errors.push({ rfid_number: rfidNumber, code: 'RFID_LOCATION_NOT_FOUND', message: 'The placed RFID has no current rack.' });
+        continue;
+      }
+      if (plan.current_rack_id === rack.id) {
+        errors.push({ rfid_number: rfidNumber, code: 'SAME_RACK', message: 'The RFID is already placed in this rack.' });
+        continue;
+      }
+      records.push({ tag, plan, fromRackId: plan.current_rack_id });
+    }
+
+    if (errors.length) return failure(409, 'Relocation validation failed.', errors);
+
+    const movedAt = new Date();
+    await PoPackPlan.update({ current_rack_id: rack.id }, {
+      where: { id: { [Op.in]: records.map(({ plan }) => plan.id) } },
+      transaction,
+    });
+    records.forEach(({ plan }) => { plan.current_rack_id = rack.id; });
+    await InventoryMovement.bulkCreate(records.map(({ tag, plan, fromRackId }) => ({
+      po_pack_plan_id: plan.id,
+      rfid_tag_id: tag.id,
+      movement_type: 'relocation',
+      from_rack_id: fromRackId,
+      to_rack_id: rack.id,
+      source: 'mobile',
+      client_request_id: request.client_request_id,
+      createdAt: movedAt,
+      updatedAt: movedAt,
+    })), { transaction });
+
+    return {
+      status: 201,
+      body: {
+        success: true,
+        data: {
+          client_request_id: request.client_request_id,
+          movement_type: 'relocation',
+          rack: { id: rack.id, code: rack.code, name: rack.name },
+          total_processed: records.length,
+          processed_at: movedAt,
+          items: records.map(({ tag, plan }) => itemSummary(plan, tag, rack)),
+        },
+        message: `${records.length} item(s) relocated successfully.`,
+      },
+    };
+  });
+}
+
+async function createTerminalMovement(input, movementType) {
+  if (!['outbound', 'trash'].includes(movementType)) {
+    return failure(400, 'Unsupported inventory action.');
+  }
+  const normalized = normalizeInventoryActionRequest(input);
+  if (normalized.errors.length) return failure(400, 'Validation failed.', normalized.errors);
+  const request = normalized.data;
+  if (await getConflictingRequest(request.client_request_id, movementType)) return idempotencyConflict();
+  const existing = await getExistingRequest(request.client_request_id, movementType);
+  if (existing.length) return existingMovementResponse(existing, request, movementType);
+
+  return sequelize.transaction(async (transaction) => {
+    const records = [];
+    const errors = [];
+    for (const rfidNumber of [...request.rfid_numbers].sort()) {
+      const tag = await RfidTag.findOne({ where: { rfid_number: rfidNumber }, transaction, lock: transaction.LOCK.UPDATE });
+      if (!tag) {
+        errors.push({ rfid_number: rfidNumber, code: 'RFID_NOT_REGISTERED', message: 'RFID tag is not registered.' });
+        continue;
+      }
+      const plan = await PoPackPlan.findOne({
+        where: { rfid_tag_id: tag.id },
+        include: planInclude(),
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+      if (!plan) {
+        errors.push({ rfid_number: rfidNumber, code: 'PACK_PLAN_NOT_FOUND', message: 'RFID tag is not assigned to a pack plan.' });
+        continue;
+      }
+      if (!canClose(plan.placement_status)) {
+        const code = canReuse(plan.placement_status) ? 'RFID_ACTION_ALREADY_COMPLETED' : 'RFID_NOT_PLACED';
+        errors.push({ rfid_number: rfidNumber, code, message: `RFID cannot be marked ${movementType} from its current lifecycle status.` });
+        continue;
+      }
+      if (!plan.current_rack_id) {
+        errors.push({ rfid_number: rfidNumber, code: 'RFID_LOCATION_NOT_FOUND', message: 'The placed RFID has no current rack.' });
+        continue;
+      }
+      records.push({ tag, plan, fromRackId: plan.current_rack_id });
+    }
+
+    if (errors.length) return failure(409, `${movementType} validation failed.`, errors);
+
+    const processedAt = new Date();
+    for (const { tag, plan } of records) {
+      // The old pack keeps its movement history, while the tag becomes
+      // available for a new pack only after outbound/trash is committed.
+      await plan.update({ placement_status: movementType, current_rack_id: null, rfid_tag_id: null }, { transaction });
+      await tag.update({ status: 'available' }, { transaction });
+    }
+    await InventoryMovement.bulkCreate(records.map(({ tag, plan, fromRackId }) => ({
+      po_pack_plan_id: plan.id,
+      rfid_tag_id: tag.id,
+      movement_type: movementType,
+      from_rack_id: fromRackId,
+      to_rack_id: null,
+      source: 'mobile',
+      client_request_id: request.client_request_id,
+      createdAt: processedAt,
+      updatedAt: processedAt,
+    })), { transaction });
+
+    return {
+      status: 201,
+      body: {
+        success: true,
+        data: {
+          client_request_id: request.client_request_id,
+          movement_type: movementType,
+          total_processed: records.length,
+          processed_at: processedAt,
+          items: records.map(({ tag, plan }) => itemSummary(plan, tag, null)),
+        },
+        message: `${records.length} item(s) marked ${movementType} successfully. RFID is now reusable.`,
+      },
+    };
+  });
+}
+
 async function listPlacementHistory(input = {}) {
   const limit = Math.min(Math.max(Number.parseInt(input.limit, 10) || 20, 1), 100);
   const offset = Math.max(Number.parseInt(input.offset, 10) || 0, 0);
   const { count, rows } = await InventoryMovement.findAndCountAll({
-    where: { movement_type: 'placement' },
+    where: { movement_type: { [Op.in]: ['placement', 'relocation', 'outbound', 'trash'] } },
     include: [
       { model: Rack, as: 'toRack', attributes: ['id', 'code', 'name'] },
+      { model: Rack, as: 'fromRack', attributes: ['id', 'code', 'name'] },
       { model: RfidTag, as: 'rfidTag', attributes: ['id', 'rfid_number'] },
       { model: PoPackPlan, as: 'packPlan', include: planInclude() },
     ],
@@ -218,10 +444,17 @@ async function listPlacementHistory(input = {}) {
       created_at: movement.createdAt,
       movement_type: movement.movement_type,
       client_request_id: movement.client_request_id,
+      from_rack: movement.fromRack,
       rack: movement.toRack,
       item: itemSummary(movement.packPlan, movement.rfidTag, movement.toRack),
     })),
   };
 }
 
-module.exports = { createPlacement, listPlacementHistory, previewPlacement };
+module.exports = {
+  createPlacement,
+  createRelocation,
+  createTerminalMovement,
+  listPlacementHistory,
+  previewPlacement,
+};

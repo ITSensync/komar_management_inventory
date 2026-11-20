@@ -60,6 +60,18 @@ user menekan **Validasi RFID** dan tidak boleh membuka pilihan rak atau submit
 sebelum seluruh item eligible. Backend tetap melakukan validasi ulang pada
 final placement.
 
+Lifecycle setelah placement:
+
+```text
+placed -> relocation -> placed di rak baru
+placed -> outbound/trash -> RFID available -> assignment ke pack baru
+```
+
+Placement ulang terhadap RFID `placed` ditolak. Relocation harus memakai
+endpoint khusus dan rak tujuan berbeda. Outbound/trash menghapus lokasi aktif,
+menyimpan movement history, lalu membuka RFID untuk reuse; UID tidak dibuat
+sebagai record baru.
+
 ## Akses development melalui Cloudflare
 
 Quick Tunnel dijalankan di host Windows yang menjalankan Docker, bukan sebagai
@@ -93,12 +105,12 @@ development/testing, bukan production.
 ## Keamanan dan batas saat ini
 
 Implementasi aktif saat ini berfokus pada katalog produk, session PO, assignment RFID,
-label, scan realtime, master rack, dan placement awal Site Employee. Schema aktif
+label, scan realtime, master rack, placement, relocation, outbound, trash, dan reuse
+RFID melalui lifecycle pack plan. Schema aktif
 hanya terdiri dari tabel-tabel pada ERD current scope. Autentikasi JWT,
-role/authorization, multi-site, mobile warehouse, receiving, opname, relokasi,
-outbound, reuse RFID, trash workflow, dan audit trail masih merupakan target fase
-berikutnya; fitur tersebut tidak boleh dianggap tersedia hanya karena tercantum pada
-PRD.
+role/authorization, multi-site, mobile warehouse, receiving, opname, serta audit
+trail lengkap masih merupakan target fase berikutnya; fitur tersebut tidak boleh
+dianggap tersedia hanya karena tercantum pada PRD.
 
 API saat ini tidak boleh diekspos ke internet tanpa lapisan autentikasi dan otorisasi
 yang sesuai. `RFID_GATEWAY_TOKEN` hanya mengamankan handshake WebSocket gateway

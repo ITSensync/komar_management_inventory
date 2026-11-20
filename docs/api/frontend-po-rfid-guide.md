@@ -672,9 +672,9 @@ Backend melakukan hal berikut secara atomik:
 
 1. Menghapus spasi dan mengubah UID menjadi huruf besar.
 2. Menolak UID duplikat dalam request yang sama.
-3. Jika UID belum ada, menyimpan RFID baru.
-4. Jika UID sudah ada tetapi `available`, memasangkannya ke paket berikutnya.
-5. Menolak UID yang sudah digunakan oleh proses lain.
+3. Jika UID belum ada, menolak dengan `RFID_NOT_REGISTERED`; Admin harus mendaftarkan UID melalui master RFID terlebih dahulu.
+4. Jika UID sudah ada tetapi `available`, memasangkannya ke paket berikutnya. Ini adalah jalur reuse setelah lifecycle lama selesai.
+5. Menolak UID yang sudah digunakan oleh proses lain atau belum dilepas dari lifecycle lama.
 6. Memasangkan setiap UID yang valid ke `pack plan` kosong dengan nomor paket berurutan.
 
 **Respons sukses contoh:**
@@ -742,6 +742,8 @@ Backend melakukan hal berikut secara atomik:
 | `invalid_uid` | Reader mengirim UID kosong/tidak valid. | Tampilkan merah; jangan hitung sebagai scan berhasil. |
 | `duplicate_in_request` | UID sama terbaca lebih dari sekali dalam satu submit. | Deduplikasi tampilan; jangan kirim ulang otomatis. |
 | `already_assigned` | UID sudah dipakai paket/proses lain. | Tampilkan error permanen dan minta admin memakai tag lain. |
+| `RFID_NOT_REGISTERED` | UID belum terdaftar di master RFID Admin. | Daftarkan UID melalui master RFID; endpoint assignment tidak membuat record otomatis. |
+| `RFID_REUSE_NOT_RELEASED` | UID masih terikat pada pack/lifecycle lama. | Selesaikan lifecycle outbound/trash sebelum assignment ulang. |
 | `no_remaining_pack` | Kebutuhan RFID item sudah penuh. | Hentikan scan dan arahkan ke label. |
 
 ### 9.3 Progress RFID

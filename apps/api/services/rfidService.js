@@ -28,8 +28,8 @@ async function registerTags(rfidTags) {
     if (existingNumbers.has(item.rfid_number)) {
       errors.push({
         ...item,
-        code: 'already_registered',
-        message: 'RFID UID is already registered.',
+        code: 'RFID_ALREADY_REGISTERED',
+        message: 'RFID UID is already registered. Use the assignment/reuse flow instead of registering it again.',
       });
       continue;
     }
@@ -47,8 +47,8 @@ async function registerTags(rfidTags) {
 
       errors.push({
         ...item,
-        code: 'already_registered',
-        message: 'RFID UID is already registered.',
+        code: 'RFID_ALREADY_REGISTERED',
+        message: 'RFID UID is already registered. Use the assignment/reuse flow instead of registering it again.',
       });
     }
   }

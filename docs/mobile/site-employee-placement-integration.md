@@ -104,6 +104,9 @@ Repacking adalah aktivitas fisik. Mobile tidak mencatat status/action `REPACKED`
 8. Mobile tidak boleh membuat submission baru ketika request sebelumnya timeout.
 9. User wajib menekan Validasi RFID sebelum pilihan rak dibuka.
 10. User tidak boleh submit jika salah satu item hasil preview tidak eligible.
+11. RFID berstatus `placed` tidak boleh diproses ulang dengan placement biasa.
+12. RFID berstatus `placed` hanya boleh dipindahkan melalui action relocation.
+13. RFID baru dapat digunakan ulang setelah action outbound atau trash berhasil.
 
 ## API contract
 
@@ -237,7 +240,58 @@ Response sukses:
 }
 ```
 
-### 4. Simple history
+### 4. Relocation, outbound, trash, dan reuse RFID
+
+Placement awal bukan relocation. Jika RFID sudah `placed`, gunakan endpoint
+relocation dan rak tujuan harus berbeda dari rak saat ini:
+
+```http
+POST /api/mobile/placements/relocation
+Content-Type: application/json
+```
+
+```json
+{
+  "rack_id": "NEW_RACK_UUID",
+  "rfid_numbers": ["RFID-001"],
+  "client_request_id": "RELOCATION-UUID"
+}
+```
+
+Relocation mempertahankan `placement_status: placed`, memperbarui rak aktif,
+dan menulis movement `relocation`. Relocation ke rak yang sama ditolak.
+
+Untuk menyelesaikan lifecycle barang:
+
+```http
+POST /api/mobile/placements/outbound
+POST /api/mobile/placements/trash
+Content-Type: application/json
+```
+
+```json
+{
+  "rfid_numbers": ["RFID-001"],
+  "client_request_id": "TERMINAL-ACTION-UUID"
+}
+```
+
+Action hanya menerima RFID yang sedang `placed`. Setelah berhasil, backend:
+
+- mengubah `placement_status` menjadi `outbound` atau `trash`;
+- menghapus rak aktif dari pack lama;
+- mempertahankan movement history;
+- membuat RFID kembali `available` untuk reuse.
+
+Reuse tidak dilakukan dengan mendaftarkan UID baru. UID tetap satu record di
+`rfid_tags`; Admin memasangkannya ke pack plan baru melalui flow assignment RFID.
+Assignment RFID yang belum pernah didaftarkan akan ditolak dengan
+`RFID_NOT_REGISTERED`, dan UID yang sudah terdaftar tidak boleh dibuat ulang.
+
+Semua action memakai `client_request_id` yang idempotent. Jangan memakai ID
+yang sama untuk placement, relocation, outbound, atau trash yang berbeda.
+
+### 5. Simple history
 
 ```http
 GET /api/mobile/placements/history?limit=20&offset=0
@@ -277,7 +331,12 @@ Response aktual:
 }
 ```
 
-Satu item history mewakili satu RFID/pack plan. Untuk menampilkan jumlah satu batch, kelompokkan item berdasarkan `client_request_id` dan hitung jumlah itemnya. Gunakan `created_at` untuk waktu, `rack.code/name` untuk rak, `movement_type` untuk label action, dan `item.placement_status` untuk status barang.
+Satu item history mewakili satu movement RFID/pack plan dan dapat berupa
+`placement`, `relocation`, `outbound`, atau `trash`. Untuk menampilkan jumlah
+satu batch, kelompokkan item berdasarkan `client_request_id` dan hitung jumlah
+itemnya. Gunakan `created_at` untuk waktu, `from_rack` dan `rack` untuk asal/
+tujuan, `movement_type` untuk label action, dan `item.placement_status` untuk
+status barang saat ini.
 
 ## State mobile yang disarankan
 
@@ -298,6 +357,12 @@ Tampilkan pesan yang mudah dipahami site employee untuk kode berikut:
 | `RFID_NOT_REGISTERED` | RFID belum didaftarkan Admin. |
 | `PACK_PLAN_NOT_FOUND` | RFID belum memiliki pack plan. |
 | `RFID_ALREADY_PLACED` | Barang sudah pernah ditempatkan. |
+| `RFID_NOT_PLACED` | RFID belum berada di rak sehingga tidak dapat direlokasi/ditutup. |
+| `RFID_ACTION_ALREADY_COMPLETED` | RFID sudah outbound atau trash. |
+| `RFID_LOCATION_NOT_FOUND` | RFID placed tidak memiliki rak aktif. |
+| `SAME_RACK` | Relocation menuju rak yang sama ditolak. |
+| `RFID_ALREADY_REGISTERED` | UID sudah ada; gunakan assignment/reuse, bukan registrasi ulang. |
+| `RFID_REUSE_NOT_RELEASED` | Siklus RFID lama belum selesai atau belum dilepas. |
 | `PACK_PLAN_CANCELLED` | Pack plan sudah dibatalkan. |
 | `RACK_NOT_FOUND` | Rak tidak ditemukan. |
 | `RACK_INACTIVE` | Rak sudah tidak aktif. |
@@ -385,30 +450,19 @@ AsyncStorage tidak boleh digunakan untuk JWT/token ketika autentikasi mobile dit
 - Cache read-only daftar rak dengan refresh sebelum submit.
 - Cache simple history untuk tampilan, tanpa menjadikannya source of truth.
 
-## P2 — Jangan dikerjakan sekarang
+## Lifecycle reuse yang sudah tersedia
 
-### Relocation
+RFID yang sudah selesai pada barang lama (`OUTBOUND` atau `TRASH`) dapat
+digunakan pada barang repack baru melalui assignment Admin. Mobile tidak boleh
+menghapus histori atau mengasumsikan RFID hanya dapat dipakai sekali seumur
+hidup.
 
-Nantinya:
-
-```text
-scan RFID placed -> pilih rak baru -> submit relocation
-```
-
-Jangan membuat mode atau screen relocation sekarang.
-
-### Reuse RFID
-
-RFID yang sudah selesai pada barang lama (`OUTBOUND` atau `TRASH`) nantinya dapat digunakan pada barang repack baru. Backend akan menyimpan assignment/usage cycle dan histori lintas barang. Mobile tidak boleh menghapus histori atau mengasumsikan RFID hanya dapat dipakai sekali seumur hidup.
-
-Jangan membuat UI reuse RFID sekarang.
+## P2 — Roadmap berikutnya
 
 ### Fitur lain
 
 Jangan implementasikan sekarang:
 
-- outbound scan;
-- trash/expired action;
 - opname mingguan;
 - scan khusus proses repacking;
 - status `REPACKED`;

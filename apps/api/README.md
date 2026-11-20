@@ -101,7 +101,7 @@ Content-Type: application/json
 }
 ```
 
-UID akan di-trim dan diubah ke huruf besar. UID yang sudah tersimpan atau muncul dua kali dalam satu submit dikembalikan pada `errors`, tetapi UID valid lain tetap disimpan dengan status `available`.
+UID akan di-trim dan diubah ke huruf besar. UID yang sudah tersimpan atau muncul dua kali dalam satu submit dikembalikan pada `errors`, tetapi UID baru yang valid disimpan dengan status `available`. Registrasi master tidak pernah menggandakan UID; reuse dilakukan melalui assignment ke pack plan baru setelah lifecycle lama berstatus `outbound` atau `trash`.
 
 Response:
 ```json
@@ -162,6 +162,9 @@ POST   /api/po-session-items/:id/print-jobs
 
 DELETE /api/po-pack-plans/:id/rfid
 POST   /api/po-pack-plans/:id/reprint
+POST   /api/mobile/placements/relocation
+POST   /api/mobile/placements/outbound
+POST   /api/mobile/placements/trash
 GET    /api/print-jobs/:id
 POST   /api/print-jobs/:id/mark-printed
 ```

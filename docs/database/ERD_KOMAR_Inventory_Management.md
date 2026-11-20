@@ -3,8 +3,9 @@
 > Dokumen ini menggambarkan schema yang aktif saat ini. Scope yang didukung adalah
 > katalog produk, persiapan session PO, assignment RFID, pencetakan label, scan
 > realtime melalui Orange Pi, master rak, dan placement repack oleh site employee.
-> Relocation, opname, outbound, trash workflow, reuse RFID, autentikasi, dan
-> multi-site belum menjadi workflow aktif.
+> Relocation, outbound, trash workflow, dan reuse RFID sudah didukung melalui
+> lifecycle placement. Opname, autentikasi, dan multi-site belum menjadi workflow
+> aktif.
 
 ## Tabel aktif
 
@@ -20,7 +21,7 @@
 | `rfid_scan_sessions` | Satu sesi pembacaan RFID realtime dari reader. |
 | `rfid_scan_events` | Log setiap event UID dari reader, termasuk hasil dan error. |
 | `racks` | Master rak yang dibuat Admin dan dipilih mobile. |
-| `inventory_movements` | Histori placement saat ini dan fondasi movement masa depan. |
+| `inventory_movements` | Histori placement, relocation, outbound, dan trash. |
 
 ## Relasi
 
@@ -139,9 +140,9 @@ Placement site employee:
 
 ```text
 rfid_tags
-  → po_pack_plans (placement_status: unplaced → placed)
+  → po_pack_plans (unplaced → placed → outbound/trash)
   → racks (current_rack_id)
-  → inventory_movements (placement history)
+  → inventory_movements (placement/relocation/outbound/trash history)
 ```
 ```
 
