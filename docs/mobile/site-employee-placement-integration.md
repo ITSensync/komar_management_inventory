@@ -15,6 +15,7 @@ Dokumen ini adalah kontrak integrasi untuk repo mobile React Native. Mobile digu
 Mobile mengakses API repo utama secara langsung melalui jaringan lokal. Untuk handheld yang berada pada jaringan yang sama dengan komputer backend, gunakan:
 
 ```env
+# Akses langsung melalui LAN
 API_BASE_URL=http://192.168.18.16:3000
 ```
 
@@ -29,6 +30,9 @@ API_BASE_URL=http://localhost:3000
 
 # Handheld/device fisik pada Wi-Fi yang sama
 API_BASE_URL=http://192.168.18.16:3000
+
+# Alternatif melalui Cloudflare Quick Tunnel
+API_BASE_URL=https://<api-tunnel>.trycloudflare.com
 ```
 
 Jangan gunakan `http://api:3000` dari mobile karena hostname tersebut hanya tersedia di dalam network Docker. Jangan gunakan `localhost` dari handheld fisik karena `localhost` menunjuk ke device itu sendiri.
@@ -40,6 +44,14 @@ Prasyarat koneksi handheld:
 3. Windows Firewall mengizinkan koneksi masuk ke TCP port `3000`.
 4. Endpoint dapat diuji melalui `http://192.168.18.16:3000/health`.
 5. Jika platform mobile memblokir HTTP cleartext pada development, aktifkan konfigurasi development yang sesuai pada aplikasi mobile. Production nantinya wajib menggunakan HTTPS.
+
+Cloudflare Quick Tunnel dijalankan dari host yang menjalankan Docker:
+
+```powershell
+cloudflared tunnel --url http://127.0.0.1:3000
+```
+
+Gunakan URL HTTPS yang dicetak `cloudflared` sebagai `API_BASE_URL`. URL Quick Tunnel bersifat sementara dan berubah ketika tunnel dibuat ulang. Tunnel tidak memiliki uptime guarantee dan endpoint REST saat ini belum memakai autentikasi, sehingga hanya untuk development/testing.
 
 ### Autentikasi fase sekarang
 
@@ -68,7 +80,9 @@ Placement home
   -> scan RFID satu atau banyak barang
   -> lihat daftar RFID yang terbaca
   -> hapus hasil scan yang salah bila perlu
-  -> ambil daftar rak active dari API
+  -> tekan Validasi RFID
+  -> preview semua RFID ke backend
+  -> jika semua eligible, ambil daftar rak active dari API
   -> pilih rak
   -> review jumlah dan daftar barang
   -> submit placement
@@ -88,6 +102,8 @@ Repacking adalah aktivitas fisik. Mobile tidak mencatat status/action `REPACKED`
 6. Backend yang mengubah status `unplaced` menjadi `placed` setelah final submit berhasil.
 7. Mobile tidak boleh menganggap sukses hanya karena request terkirim.
 8. Mobile tidak boleh membuat submission baru ketika request sebelumnya timeout.
+9. User wajib menekan Validasi RFID sebelum pilihan rak dibuka.
+10. User tidak boleh submit jika salah satu item hasil preview tidak eligible.
 
 ## API contract
 
@@ -135,7 +151,53 @@ Request:
 }
 ```
 
-Response berisi detail setiap RFID dan `eligible`. Preview dapat digunakan untuk memberi feedback sebelum user memilih rak atau submit.
+Response aktual:
+
+```json
+{
+  "success": true,
+  "data": {
+    "eligible": true,
+    "items": [
+      {
+        "rfid_number": "RFID-001",
+        "rfid_tag_id": 1,
+        "pack_plan_id": "PACK_PLAN_UUID",
+        "pack_number": 1,
+        "label_code": "LBL-001",
+        "product_id": "PRODUCT_UUID",
+        "sku": "KMR-SUSU-250",
+        "product_name": "Susu UHT 250 ml",
+        "expires_on": null,
+        "placement_status": "unplaced",
+        "current_rack": null,
+        "eligible": true
+      }
+    ]
+  }
+}
+```
+
+Jika RFID belum terdaftar, preview tetap dapat merespons HTTP `200`, tetapi item tersebut tidak eligible:
+
+```json
+{
+  "success": true,
+  "data": {
+    "eligible": false,
+    "items": [
+      {
+        "rfid_number": "RFID-UNKNOWN",
+        "eligible": false,
+        "error_code": "RFID_NOT_REGISTERED",
+        "message": "RFID tag is not registered."
+      }
+    ]
+  }
+}
+```
+
+Mobile wajib memanggil preview setelah tombol **Validasi RFID** ditekan. Sebelum preview sukses dan semua `data.items[].eligible` bernilai `true`, pilihan rak dan submit harus disabled.
 
 ### 3. Final placement
 
@@ -181,7 +243,41 @@ Response sukses:
 GET /api/mobile/placements/history?limit=20&offset=0
 ```
 
-Mobile cukup menampilkan waktu, jumlah barang, rak tujuan, dan status. Detail audit lengkap tetap berada di backend/Admin web.
+Response aktual:
+
+```json
+{
+  "success": true,
+  "data": {
+    "total": 1,
+    "limit": 20,
+    "offset": 0,
+    "items": [
+      {
+        "id": "MOVEMENT_UUID",
+        "created_at": "2026-11-19T10:30:00.000Z",
+        "movement_type": "placement",
+        "client_request_id": "MOBILE-REQUEST-UUID",
+        "rack": {
+          "id": "RACK_UUID",
+          "code": "RAK-01",
+          "name": "Rak Susu"
+        },
+        "item": {
+          "rfid_number": "RFID-001",
+          "pack_plan_id": "PACK_PLAN_UUID",
+          "pack_number": 1,
+          "sku": "KMR-SUSU-250",
+          "product_name": "Susu UHT 250 ml",
+          "placement_status": "placed"
+        }
+      }
+    ]
+  }
+}
+```
+
+Satu item history mewakili satu RFID/pack plan. Untuk menampilkan jumlah satu batch, kelompokkan item berdasarkan `client_request_id` dan hitung jumlah itemnya. Gunakan `created_at` untuk waktu, `rack.code/name` untuk rak, `movement_type` untuk label action, dan `item.placement_status` untuk status barang.
 
 ## State mobile yang disarankan
 
@@ -211,12 +307,67 @@ Tampilkan pesan yang mudah dipahami site employee untuk kode berikut:
 
 Jika final placement gagal, mobile tidak boleh mengubah status lokal menjadi `placed`.
 
+Tidak semua object pada `errors[]` selalu memiliki `code`, tetapi setiap error memiliki `message`. Gunakan prioritas pesan berikut:
+
+```text
+businessMessageMap[errors[0].code]
+  -> errors[0].message
+  -> top-level message
+  -> pesan umum
+```
+
+Error placement contoh:
+
+```json
+{
+  "success": false,
+  "message": "Placement validation failed.",
+  "errors": [
+    {
+      "rfid_number": "RFID-UNKNOWN",
+      "code": "RFID_NOT_REGISTERED",
+      "message": "RFID tag is not registered."
+    }
+  ]
+}
+```
+
+## Timeout, pending submission, dan retry
+
+Mobile boleh menyimpan submission pending di AsyncStorage karena payload placement bukan token/secret. Simpan payload lengkap dan ID yang sama:
+
+```json
+{
+  "client_request_id": "MOBILE-REQUEST-UUID",
+  "rack_id": "RACK_UUID",
+  "rfid_numbers": ["RFID-001", "RFID-002"],
+  "created_at": "2026-11-19T10:30:00.000Z",
+  "status": "pending"
+}
+```
+
+Aturan:
+
+1. Simpan pending sebelum request pertama dikirim.
+2. Timeout pertama boleh melakukan satu retry otomatis dengan payload dan `client_request_id` yang sama.
+3. Jika masih timeout, tampilkan tombol **Coba lagi**.
+4. Tombol tersebut tetap memakai `client_request_id` yang sama.
+5. Hapus pending hanya setelah menerima `201` sukses atau `200` dengan `reused: true`.
+6. Jangan gunakan ID yang sama untuk payload berbeda. Jika user mengubah rak atau daftar RFID, buat submission baru dengan ID baru.
+7. Untuk error `4xx` permanen, jangan retry otomatis; minta user memperbaiki data.
+
+AsyncStorage tidak boleh digunakan untuk JWT/token ketika autentikasi mobile ditambahkan. Gunakan secure storage untuk credential pada fase auth mendatang.
+
 ## P0 checklist
 
 - [ ] Screen placement tersedia.
 - [ ] Handheld dapat memasukkan satu atau banyak RFID.
 - [ ] RFID duplicate tidak menggandakan list.
 - [ ] User dapat menghapus RFID sebelum submit.
+- [ ] Tombol Validasi RFID tersedia setelah scan.
+- [ ] Pilihan rak disabled sebelum validasi berhasil.
+- [ ] Submit disabled sebelum semua item eligible.
+- [ ] RFID belum terdaftar ditolak sebelum pemilihan rak.
 - [ ] Rak active dapat dimuat dari API.
 - [ ] Submit disabled jika RFID atau rak belum dipilih.
 - [ ] Review jumlah dan ringkasan item tersedia.
@@ -229,7 +380,6 @@ Jika final placement gagal, mobile tidak boleh mengubah status lokal menjadi `pl
 
 ## P1 — Pendukung, bukan blocker
 
-- Preview detail SKU/product/sequence sebelum submit.
 - Search/filter pada hasil scan.
 - Refresh rak manual.
 - Cache read-only daftar rak dengan refresh sebelum submit.
@@ -264,3 +414,15 @@ Jangan implementasikan sekarang:
 - status `REPACKED`;
 - CRUD master rak;
 - offline-first conflict resolution penuh.
+
+## WebSocket hardware dan Cloudflare
+
+Flow placement mobile tidak membutuhkan WebSocket gateway jika handheld dapat membaca UID melalui adapter mobile. WebSocket `/ws` digunakan oleh Orange Pi gateway dan dashboard realtime Admin.
+
+Jika Orange Pi mengakses backend melalui Cloudflare Tunnel API:
+
+```text
+wss://<api-tunnel>.trycloudflare.com/ws
+```
+
+`RFID_GATEWAY_TOKEN` hanya untuk gateway Orange Pi dan tidak boleh dimasukkan ke aplikasi mobile. Detail handshake dan troubleshooting ada di `docs/hardware/orangepi-rfid-websocket.md`.

@@ -36,6 +36,22 @@ docker compose ps
 
 Browser selalu mengakses API melalui `http://localhost:3001/api/...`. Next.js meneruskan request tersebut ke service API internal; nama Docker `api` tidak pernah dikirim ke browser.
 
+### Akses development melalui Cloudflare Quick Tunnel
+
+Jika handheld atau perangkat hardware berada di luar jaringan lokal, jalankan
+tunnel API pada host Docker:
+
+```powershell
+cloudflared tunnel --url http://127.0.0.1:3000
+```
+
+Gunakan URL `https://<api-tunnel>.trycloudflare.com` untuk mobile. Orange Pi
+harus menggunakan `wss://<api-tunnel>.trycloudflare.com/ws`. Quick Tunnel hanya
+untuk development/testing: URL berubah, tidak memiliki uptime guarantee, dan
+REST API saat ini belum memakai login/JWT. Lihat [arsitektur](docs/ARCHITECTURE.md),
+[kontrak mobile](docs/mobile/site-employee-placement-integration.md), dan
+[kontrak Orange Pi](docs/hardware/orangepi-rfid-websocket.md).
+
 Untuk menghentikan stack tanpa menghapus data:
 
 ```bash

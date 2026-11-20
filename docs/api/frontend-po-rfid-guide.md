@@ -787,8 +787,28 @@ Content-Type: application/json
 }
 ```
 
-Setelah session dibuat, dashboard terhubung ke `ws://<api-host>:3000/ws` dan
-mengirim handshake:
+Setelah session dibuat, dashboard terhubung ke WebSocket API pada path `/ws` dan
+mengirim handshake. Untuk akses lokal gunakan `ws://<api-host>:3000/ws`.
+Jika dashboard dibuka melalui Cloudflare, gunakan URL WSS API, bukan URL FE:
+
+```env
+NEXT_PUBLIC_RFID_WS_URL=wss://<api-tunnel>.trycloudflare.com/ws
+```
+
+`NEXT_PUBLIC_RFID_WS_URL` dibaca saat build Next.js. Setelah Quick Tunnel
+mendapat URL baru, perbarui environment dan build/restart web kembali.
+
+Contoh URL yang dipakai frontend:
+
+```text
+ws://localhost:3000/ws                         # lokal
+wss://<api-tunnel>.trycloudflare.com/ws        # Cloudflare API tunnel
+```
+
+Jangan gunakan `ws://<frontend-tunnel>.trycloudflare.com/ws`,
+`/api/ws`, atau port FE `3001`; WebSocket berada di API port `3000`.
+
+Dashboard kemudian mengirim handshake:
 
 ```json
 {
