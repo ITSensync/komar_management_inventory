@@ -7,12 +7,14 @@ const {
   PoSessionItem,
   PoPackPlan,
   RfidTag,
+  InventoryMovement,
   LabelPrintJob,
   LabelPrintItem,
   RfidScanSession,
 } = require('../models');
 const { normalizeRfidTags } = require('../utils/rfidTags');
 const { calculateRepackPlan, normalizePoSession, normalizePoSessionItem, normalizePrintFormat } = require('../utils/poSessions');
+const { evaluateRfidEligibility } = require('../utils/rfidEligibility');
 
 function validationResult(errors) {
   return { status: 400, body: { success: false, message: 'Validation failed.', errors } };
@@ -104,7 +106,7 @@ async function addItem(sessionId, input) {
     const calculation = calculateRepackPlan({
       orderedSupplierPackQuantity: normalized.data.ordered_supplier_pack_quantity,
       supplierPackUnits: product.supplier_pack_units,
-      minOutboundUnits: normalized.data.min_outbound_units,
+      minOutboundUnits: product.min_outbound_units,
       baseUnit: product.base_unit,
     });
     if (calculation.errors.length) return validationResult(calculation.errors);
@@ -119,8 +121,8 @@ async function addItem(sessionId, input) {
       supplier_pack_units_snapshot: product.supplier_pack_units,
       supplier_pack_label_snapshot: product.supplier_pack_label,
       ordered_quantity: orderedQuantity,
-      units_per_rfid_pack: normalized.data.min_outbound_units,
-      min_outbound_units: normalized.data.min_outbound_units,
+      units_per_rfid_pack: product.min_outbound_units,
+      min_outbound_units: product.min_outbound_units,
       expires_on: normalized.data.expires_on,
       required_rfid_count: requiredRfidCount,
       notes: normalized.data.notes,
@@ -129,7 +131,7 @@ async function addItem(sessionId, input) {
     await PoPackPlan.bulkCreate(Array.from({ length: requiredRfidCount }, (_, index) => ({
       po_session_item_id: item.id,
       sequence_number: index + 1,
-      units: normalized.data.min_outbound_units,
+      units: product.min_outbound_units,
       label_code: labelCode(),
     })), { transaction });
     return {
@@ -163,7 +165,7 @@ async function updateItem(itemId, input) {
     const calculation = calculateRepackPlan({
       orderedSupplierPackQuantity: normalized.data.ordered_supplier_pack_quantity,
       supplierPackUnits: product.supplier_pack_units,
-      minOutboundUnits: normalized.data.min_outbound_units,
+      minOutboundUnits: product.min_outbound_units,
       baseUnit: product.base_unit,
     });
     if (calculation.errors.length) return validationResult(calculation.errors);
@@ -179,8 +181,8 @@ async function updateItem(itemId, input) {
       supplier_pack_units_snapshot: product.supplier_pack_units,
       supplier_pack_label_snapshot: product.supplier_pack_label,
       ordered_quantity: orderedQuantity,
-      units_per_rfid_pack: normalized.data.min_outbound_units,
-      min_outbound_units: normalized.data.min_outbound_units,
+      units_per_rfid_pack: product.min_outbound_units,
+      min_outbound_units: product.min_outbound_units,
       expires_on: normalized.data.expires_on,
       required_rfid_count: requiredRfidCount,
       notes: normalized.data.notes,
@@ -188,7 +190,7 @@ async function updateItem(itemId, input) {
     await PoPackPlan.bulkCreate(Array.from({ length: requiredRfidCount }, (_, index) => ({
       po_session_item_id: item.id,
       sequence_number: index + 1,
-      units: normalized.data.min_outbound_units,
+      units: product.min_outbound_units,
       label_code: labelCode(),
     })), { transaction });
     return { status: 200, body: { success: true, data: item, required_rfid_count: requiredRfidCount } };
@@ -214,6 +216,7 @@ async function deleteItem(itemId) {
 async function scanRfidTags(itemId, rfidTags, externalTransaction = null) {
   const normalized = normalizeRfidTags(rfidTags);
   if (normalized.error) return failure(400, normalized.error);
+  const duplicateErrors = normalized.errors.filter((error) => error.code === 'duplicate_in_request');
 
   const execute = async (transaction) => {
     const item = await PoSessionItem.findByPk(itemId, { transaction, lock: transaction.LOCK.UPDATE });
@@ -231,7 +234,8 @@ async function scanRfidTags(itemId, rfidTags, externalTransaction = null) {
     });
     const availablePlans = [...plans];
     const results = [];
-    const errors = [...normalized.errors];
+    const errors = normalized.errors.filter((error) => error.code !== 'duplicate_in_request');
+    let ignoredDuplicates = duplicateErrors.length;
 
     for (const scannedTag of normalized.tags) {
       let tag = await RfidTag.findOne({
@@ -239,47 +243,110 @@ async function scanRfidTags(itemId, rfidTags, externalTransaction = null) {
         transaction,
         lock: transaction.LOCK.UPDATE,
       });
-
-      if (!tag) {
-        errors.push({
-          ...scannedTag,
-          code: 'RFID_NOT_REGISTERED',
-          message: 'RFID UID must be registered by Admin before assignment.',
-        });
-        continue;
-      }
-
-      if (tag && tag.status !== 'available') {
-        errors.push({ ...scannedTag, code: 'already_assigned', message: 'RFID UID is already assigned to another process.' });
-        continue;
-      }
-
-      const existingPlan = await PoPackPlan.findOne({
+      let registeredNow = false;
+      let existingPlan = tag ? await PoPackPlan.findOne({
         where: { rfid_tag_id: tag.id },
+        include: [{
+          model: PoSessionItem,
+          as: 'item',
+          attributes: ['id', 'po_session_id', 'product_name_snapshot'],
+          include: [{ model: PoSession, as: 'session', attributes: ['id', 'session_number', 'status'] }],
+        }],
         transaction,
         lock: transaction.LOCK.UPDATE,
-      });
-      if (existingPlan) {
-        errors.push({
-          ...scannedTag,
-          code: 'RFID_REUSE_NOT_RELEASED',
-          message: 'RFID UID cannot be reused until its previous outbound or trash lifecycle is released.',
+      }) : null;
+      let latestMovement = tag ? await InventoryMovement.findOne({
+        where: { rfid_tag_id: tag.id },
+        include: [{
+          model: PoPackPlan,
+          as: 'packPlan',
+          attributes: ['id', 'po_session_item_id', 'placement_status'],
+          include: [{
+            model: PoSessionItem,
+            as: 'item',
+            attributes: ['id', 'po_session_id', 'product_name_snapshot'],
+            include: [{ model: PoSession, as: 'session', attributes: ['id', 'session_number', 'status'] }],
+          }],
+        }],
+        order: [['createdAt', 'DESC'], ['id', 'DESC']],
+        transaction,
+      }) : null;
+
+      // A reader can report the same tag again after the five-second gateway
+      // debounce window. If it is already assigned to this exact item, treat
+      // the event as a silent no-op instead of showing a failure to the admin.
+      if (existingPlan && existingPlan.po_session_item_id === item.id) {
+        ignoredDuplicates += 1;
+        continue;
+      }
+
+      if (!availablePlans.length) {
+        errors.push({ ...scannedTag, code: 'no_remaining_pack', message: 'This item already has all required RFID tags.' });
+        continue;
+      }
+
+      if (!tag) {
+        [tag, registeredNow] = await RfidTag.findOrCreate({
+          where: { rfid_number: scannedTag.rfid_number },
+          defaults: { status: 'available' },
+          transaction,
         });
+        await tag.reload({ transaction, lock: transaction.LOCK.UPDATE });
+        if (!registeredNow) {
+          existingPlan = await PoPackPlan.findOne({
+            where: { rfid_tag_id: tag.id },
+            include: [{
+              model: PoSessionItem,
+              as: 'item',
+              attributes: ['id', 'po_session_id', 'product_name_snapshot'],
+              include: [{ model: PoSession, as: 'session', attributes: ['id', 'session_number', 'status'] }],
+            }],
+            transaction,
+            lock: transaction.LOCK.UPDATE,
+          });
+          latestMovement = await InventoryMovement.findOne({
+            where: { rfid_tag_id: tag.id },
+            include: [{
+              model: PoPackPlan,
+              as: 'packPlan',
+              attributes: ['id', 'po_session_item_id', 'placement_status'],
+              include: [{
+                model: PoSessionItem,
+                as: 'item',
+                attributes: ['id', 'po_session_id', 'product_name_snapshot'],
+                include: [{ model: PoSession, as: 'session', attributes: ['id', 'session_number', 'status'] }],
+              }],
+            }],
+            order: [['createdAt', 'DESC'], ['id', 'DESC']],
+            transaction,
+          });
+          if (existingPlan && existingPlan.po_session_item_id === item.id) {
+            ignoredDuplicates += 1;
+            continue;
+          }
+        }
+      }
+
+      const eligibility = evaluateRfidEligibility({
+        tag,
+        existingPlan,
+        latestMovement,
+        targetItemId: item.id,
+        targetSessionId: session.id,
+      });
+      if (!eligibility.eligible) {
+        errors.push({ ...scannedTag, ...eligibility });
         continue;
       }
 
       const plan = availablePlans.shift();
-      if (!plan) {
-        errors.push({ ...scannedTag, code: 'no_remaining_pack', message: 'This item already has all required RFID tags.' });
-        continue;
-      }
 
       try {
         await tag.update({ status: 'assigned_to_po' }, { transaction });
       } catch (error) {
         if (!(error instanceof UniqueConstraintError)) throw error;
         availablePlans.unshift(plan);
-        errors.push({ ...scannedTag, code: 'already_assigned', message: 'RFID UID was registered by another request.' });
+        errors.push({ ...scannedTag, code: 'RFID_ALREADY_ASSIGNED_TO_PO', message: 'RFID sudah dipakai oleh request lain. Silakan scan ulang dengan UID lain.' });
         continue;
       }
 
@@ -294,19 +361,22 @@ async function scanRfidTags(itemId, rfidTags, externalTransaction = null) {
         pack_plan_id: plan.id,
         pack_number: plan.sequence_number,
         label_code: plan.label_code,
+        registered_now: registeredNow,
+        code: registeredNow ? 'RFID_REGISTERED_AND_ASSIGNED' : 'RFID_ASSIGNED',
       });
     }
 
     const pendingCount = await PoPackPlan.count({ where: { po_session_item_id: item.id, status: 'pending_tag' }, transaction });
     if (pendingCount === 0) await item.update({ status: 'ready_to_print' }, { transaction });
-    const status = results.length > 0 ? 201 : normalized.tags.length > 0 ? 409 : 400;
+    const status = results.length > 0 ? 201 : errors.length > 0 ? 409 : ignoredDuplicates > 0 ? 200 : 400;
     return {
       status,
       body: {
-        success: results.length > 0,
+        success: results.length > 0 || ignoredDuplicates > 0,
         total_requested: Array.isArray(rfidTags) ? rfidTags.length : 0,
         total_assigned: results.length,
         total_errors: errors.length,
+        ignored_duplicates: ignoredDuplicates,
         remaining_rfid_count: pendingCount,
         results,
         errors,

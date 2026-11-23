@@ -24,3 +24,14 @@ test('normalizes independent supplier and warehouse repack quantities', () => {
   assert.equal(valid.data.supplier_pack_label, 'pack');
   assert.equal(invalid.errors[0].field, 'supplier_pack_units');
 });
+
+test('requires a positive minimum outbound configuration in the product catalog', () => {
+  const result = normalizeProduct({
+    sku: 'SUSU-250',
+    name: 'Susu 250 ml',
+    supplier_pack_units: 12,
+    min_outbound_units: 0,
+  });
+
+  assert.equal(result.errors[0].field, 'min_outbound_units');
+});

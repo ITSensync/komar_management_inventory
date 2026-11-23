@@ -283,7 +283,7 @@ paths:
     post:
       tags: [PO Sessions]
       summary: Add an item and generate RFID pack plans
-      description: The backend calculates total base units from ordered_supplier_pack_quantity and the product supplier_pack_units. The resulting total must divide evenly by min_outbound_units; one plan is created for each RFID.
+      description: The backend reads supplier_pack_units and min_outbound_units from the selected product, calculates total base units from ordered_supplier_pack_quantity, and requires the resulting total to divide evenly by the product min_outbound_units. One plan is created for each RFID.
       requestBody:
         required: true
         content:
@@ -325,7 +325,7 @@ paths:
     post:
       tags: [PO Sessions]
       summary: Register scanned UID and atomically assign it to the next empty pack plan
-      description: The UID must already exist in the Admin RFID master. This endpoint never auto-registers an unknown UID. A registered RFID can be assigned again only after its previous pack reaches outbound or trash and the terminal action releases the tag for reuse.
+      description: An unknown UID scanned from the Admin realtime PO flow is registered and assigned atomically. A UID cannot be duplicated within one request, PO item, or active PO session, and cannot be reused while its current lifecycle is placed/relocation or assigned to another PO. A registered RFID can be assigned again only after an explicit release or after its previous pack reaches outbound or trash and the terminal action releases the tag for reuse.
       requestBody:
         required: true
         content:
@@ -336,7 +336,7 @@ paths:
         '201':
           description: One or more UID assignments created
         '409':
-          description: UID unavailable or all plans are filled
+          description: UID unavailable, duplicated, still placed/assigned, inconsistent, or all plans are filled
           content:
             application/json:
               schema:
@@ -840,7 +840,7 @@ components:
           nullable: true
     PoSessionItemInput:
       type: object
-      required: [product_id, ordered_supplier_pack_quantity, min_outbound_units]
+      required: [product_id, ordered_supplier_pack_quantity]
       properties:
         product_id:
           type: string
@@ -849,11 +849,6 @@ components:
           type: integer
           minimum: 1
           example: 50
-        min_outbound_units:
-          type: integer
-          minimum: 1
-          description: Quantity represented by one warehouse repack, RFID, and label.
-          example: 5
         expires_on:
           type: string
           format: date

@@ -259,9 +259,10 @@ async function processReaderEvent(message, readerCode) {
     const result = await require('./poSessionService').scanRfidTags(lockedSession.po_session_item_id, [uid], transaction);
     const body = result.body;
     const assigned = body.total_assigned > 0;
+    const ignoredDuplicate = body.ignored_duplicates > 0;
     const firstError = body.errors && body.errors[0];
-    const status = assigned ? 'stored' : firstError && firstError.code === 'duplicate_in_request' ? 'duplicate' : 'rejected';
-    const errorCode = firstError ? firstError.code : result.status >= 400 ? 'scan_rejected' : undefined;
+    const status = assigned ? 'stored' : ignoredDuplicate ? 'duplicate' : 'rejected';
+    const errorCode = firstError ? firstError.code : ignoredDuplicate ? 'duplicate_read' : result.status >= 400 ? 'scan_rejected' : undefined;
     const errorMessage = firstError ? firstError.message : result.status >= 400 ? body.message : undefined;
     const ack = buildAck(message, readerCode, status, {
       uid,

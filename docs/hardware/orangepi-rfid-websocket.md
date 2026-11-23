@@ -158,6 +158,19 @@ UID berhasil disimpan:
 
 UID duplicate atau ditolak akan memiliki `status` `duplicate` atau `rejected`, beserta `code` dan `message` bila tersedia.
 
+Gateway Orange Pi tetap hanya membaca UID dan mengirim `rfid.detected` seperti
+biasa. Keputusan UID boleh digunakan atau tidak ditampilkan pada modal
+**REALTIME RFID SCAN** di frontend. Backend menolak UID yang masih memiliki
+assignment aktif, lifecycle `placed`/`relocation`, atau duplikat pada PO/session.
+UID baru dapat dipakai setelah assignment dilepas, atau setelah lifecycle
+sebelumnya selesai sebagai `outbound`/`trash`.
+
+Pembacaan duplicate dari reader bukan error bisnis. Dashboard boleh menerima
+ack `duplicate`, tetapi modal **REALTIME RFID SCAN** harus mengabaikannya tanpa
+alert, tanpa riwayat baru, dan tanpa assignment tambahan. Alert frontend hanya
+untuk UID yang berhasil dipasangkan atau UID yang benar-benar ditolak karena
+lifecycle/status tidak valid.
+
 ## Arti HTTP 503 pada start scan
 
 Endpoint berikut hanya dapat berhasil jika gateway sudah terhubung:

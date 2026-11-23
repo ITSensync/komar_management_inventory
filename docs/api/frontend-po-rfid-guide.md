@@ -42,7 +42,7 @@ Hasil:
 
 ### 1.3 Aturan paling penting
 
-1. Nilai SOP/minimum outbound **diisi admin per item**. Angka `5` hanya contoh, bukan angka tetap.
+1. Nilai `min_outbound_units` **didefinisikan admin pada katalog produk**. Angka `5` hanya contoh, bukan angka tetap.
 2. Backend menghitung `ordered_quantity = ordered_supplier_pack_quantity × supplier_pack_units_snapshot`; hasilnya wajib habis dibagi `min_outbound_units`.
 3. Satu RFID = satu paket fisik = satu label.
 4. Expiry diisi per item dan berlaku untuk seluruh paket dari item tersebut.
@@ -50,6 +50,25 @@ Hasil:
 6. Label item yang sudah selesai dicetak **tidak menutup session**.
 7. Session tetap `active`, sehingga admin boleh menambah item baru kapan pun sebelum session ditutup manual.
 8. Session hanya dapat `completed` jika semua item di dalamnya sudah memiliki label tercetak.
+
+### 1.4 Kapan UID RFID boleh digunakan kembali
+
+Gunakan lifecycle berikut sebagai aturan utama. Status `inventory_movements`
+yang dipakai adalah movement terakhir untuk UID tersebut, bukan sekadar adanya
+riwayat lama.
+
+| Kondisi UID | Boleh dipakai untuk product/PO baru? | Tindakan |
+|---|---:|---|
+| Belum pernah masuk session/pack plan | Ya | UID baru didaftarkan otomatis lalu di-assign oleh scan Admin. |
+| Sudah masuk session atau `unplaced` | Tidak | Jangan assign ke item lain; UID masih terikat pada pack plan lama. |
+| `placed` | Tidak | Gunakan proses relokasi atau lifecycle inventory yang sesuai. |
+| `relocation` | Tidak | Tunggu sampai lifecycle berikutnya selesai. |
+| Saat proses `outbound`/`trash` berlangsung | Tidak | Tunggu transaksi terminal berhasil dan assignment dilepas. |
+| Setelah `outbound`/`trash` berhasil | Ya | UID kembali `available` dan boleh di-assign ke pack baru. |
+| Assignment dilepas secara resmi sebelum placement | Ya | UID kembali `available` dan boleh dipakai ulang. |
+
+UID tidak pernah boleh dibuat sebagai record kedua. Reuse selalu menggunakan
+record RFID yang sama setelah syarat lifecycle terpenuhi.
 
 ---
 
@@ -223,7 +242,7 @@ generated → failed
 | Katalog produk | Melihat dan mengelola produk. | `/api/products` |
 | Daftar session PO | Mencari, membuat, dan membuka session. | `/api/po-sessions` |
 | Detail session PO | Menambah item dan melihat seluruh progres. | `/api/po-sessions/:id` |
-| Form item session | Memasukkan produk, jumlah, SOP, expiry. | `POST /api/po-sessions/:id/items` |
+| Form item session | Memasukkan produk, jumlah supplier, expiry; konfigurasi repack diambil dari produk. | `POST /api/po-sessions/:id/items` |
 | Scan RFID | Menampilkan kebutuhan, UID masuk, error, dan sisa tag. | `POST /api/po-session-items/:id/rfid-scans` |
 | Preview/cetak label | Menampilkan label dan memicu print. | `/api/print-jobs/:id` |
 
@@ -327,7 +346,7 @@ DELETE /api/products/:productId
 
 - `PUT` menggunakan payload produk lengkap atau field yang ingin diubah sesuai kontrak API produk.
 - Produk yang sudah dipakai proses inventori sebaiknya diubah menjadi `inactive`, bukan dihapus.
-- `supplier_pack_units` adalah default kemasan pembelian supplier. `min_outbound_units` item tetap dikirim frontend saat membuat item karena admin boleh memilih ukuran repack berbeda dari default produk.
+- `supplier_pack_units` dan `min_outbound_units` berasal dari produk terpilih dan tidak dikirim ulang pada payload item PO. PO menyimpan keduanya sebagai snapshot agar histori tidak berubah ketika katalog diedit.
 - Jika `supplier_pack_label` tidak dikirim saat membuat produk baru, backend menggunakan nilai aplikasi `"pack"`. Field ini boleh bernilai `null` untuk histori legacy.
 - Field legacy `units_per_pack` tidak lagi dikirim oleh API produk dan tidak boleh dipakai frontend untuk kalkulasi baru.
 - `expiry_required` saat ini adalah informasi katalog. Backend session masih mengizinkan `expires_on` kosong karena expiry disepakati opsional.
@@ -556,7 +575,6 @@ Content-Type: application/json
 {
   "product_id": "PRODUCT_UUID",
   "ordered_supplier_pack_quantity": 50,
-  "min_outbound_units": 5,
   "expires_on": "2026-12-31",
   "notes": "Simpan pada rak pendingin"
 }
@@ -566,7 +584,6 @@ Content-Type: application/json
 |---|---:|---|
 | `product_id` | Ya | UUID produk aktif dari katalog. |
 | `ordered_supplier_pack_quantity` | Ya | Jumlah pack yang dipesan dari supplier, contoh `50`. |
-| `min_outbound_units` | Ya | Integer positif; jumlah unit yang diwakili oleh satu RFID/paket. |
 | `expires_on` | Tidak | `YYYY-MM-DD` atau `null`. |
 | `notes` | Tidak | Catatan item. |
 
@@ -576,7 +593,7 @@ Content-Type: application/json
 
 ```text
 estimatedOrderedQuantity = ordered_supplier_pack_quantity × product.supplier_pack_units
-estimatedRfid = estimatedOrderedQuantity / min_outbound_units
+estimatedRfid = estimatedOrderedQuantity / product.min_outbound_units
 ```
 
 Tampilkan preview seperti:
@@ -614,7 +631,7 @@ Namun hasil API tetap sumber kebenaran.
 PATCH /api/po-session-items/:itemId
 ```
 
-**Digunakan ketika:** admin salah memasukkan produk, jumlah order, SOP, expiry, atau catatan, tetapi belum ada RFID yang dipasangkan.
+**Digunakan ketika:** admin salah memasukkan produk, jumlah order, expiry, atau catatan, tetapi belum ada RFID yang dipasangkan.
 
 Kirim payload item lengkap:
 
@@ -622,7 +639,6 @@ Kirim payload item lengkap:
 {
   "product_id": "PRODUCT_UUID",
   "ordered_supplier_pack_quantity": 100,
-  "min_outbound_units": 10,
   "expires_on": null,
   "notes": "Revisi jumlah dari supplier"
 }
@@ -671,9 +687,9 @@ Content-Type: application/json
 Backend melakukan hal berikut secara atomik:
 
 1. Menghapus spasi dan mengubah UID menjadi huruf besar.
-2. Menolak UID duplikat dalam request yang sama.
-3. Jika UID belum ada, menolak dengan `RFID_NOT_REGISTERED`; Admin harus mendaftarkan UID melalui master RFID terlebih dahulu.
-4. Jika UID sudah ada tetapi `available`, memasangkannya ke paket berikutnya. Ini adalah jalur reuse setelah lifecycle lama selesai.
+2. Mengabaikan UID duplikat dalam request yang sama tanpa membuat assignment kedua.
+3. Jika UID belum ada, membuat record RFID baru dengan status `available`, lalu mendaftarkannya ke paket berikutnya dalam transaksi yang sama. Respons sukses menandai `registered_now: true`.
+4. Jika UID sudah ada tetapi `available`, memasangkannya ke paket berikutnya. Ini adalah jalur reuse setelah assignment dilepas atau lifecycle lama selesai.
 5. Menolak UID yang sudah digunakan oleh proses lain atau belum dilepas dari lifecycle lama.
 6. Memasangkan setiap UID yang valid ke `pack plan` kosong dengan nomor paket berurutan.
 
@@ -685,6 +701,7 @@ Backend melakukan hal berikut secara atomik:
   "total_requested": 2,
   "total_assigned": 2,
   "total_errors": 0,
+  "ignored_duplicates": 0,
   "remaining_rfid_count": 118,
   "results": [
     {
@@ -693,7 +710,8 @@ Backend melakukan hal berikut secara atomik:
       "id": 1,
       "pack_plan_id": "PACK_PLAN_UUID_1",
       "pack_number": 1,
-      "label_code": "LBL-..."
+       "label_code": "LBL-...",
+       "registered_now": true
     },
     {
       "index": 1,
@@ -716,6 +734,7 @@ Backend melakukan hal berikut secara atomik:
   "total_requested": 2,
   "total_assigned": 1,
   "total_errors": 1,
+  "ignored_duplicates": 0,
   "remaining_rfid_count": 117,
   "results": [
     {
@@ -728,8 +747,8 @@ Backend melakukan hal berikut secara atomik:
     {
       "index": 1,
       "rfid_number": "E2806894000040168D43218C",
-      "code": "already_assigned",
-      "message": "RFID UID is already assigned to another process."
+      "code": "RFID_ALREADY_ASSIGNED_TO_PO",
+      "message": "RFID ini masih digunakan pada PO lain dan belum dapat digunakan kembali."
     }
   ]
 }
@@ -740,11 +759,21 @@ Backend melakukan hal berikut secara atomik:
 | `errors[].code` | Arti untuk admin | Perlakuan UI |
 |---|---|---|
 | `invalid_uid` | Reader mengirim UID kosong/tidak valid. | Tampilkan merah; jangan hitung sebagai scan berhasil. |
-| `duplicate_in_request` | UID sama terbaca lebih dari sekali dalam satu submit. | Deduplikasi tampilan; jangan kirim ulang otomatis. |
-| `already_assigned` | UID sudah dipakai paket/proses lain. | Tampilkan error permanen dan minta admin memakai tag lain. |
-| `RFID_NOT_REGISTERED` | UID belum terdaftar di master RFID Admin. | Daftarkan UID melalui master RFID; endpoint assignment tidak membuat record otomatis. |
-| `RFID_REUSE_NOT_RELEASED` | UID masih terikat pada pack/lifecycle lama. | Selesaikan lifecycle outbound/trash sebelum assignment ulang. |
+| `duplicate_in_request` | UID sama terbaca lebih dari sekali dalam satu submit. | Abaikan diam-diam; jangan tampilkan alert dan jangan membuat assignment kedua. |
+| `RFID_DUPLICATE_IN_ITEM` | UID sudah dipakai pada item yang sedang diproses. | Tampilkan label DITOLAK pada modal Realtime RFID Scan. |
+| `RFID_DUPLICATE_IN_SESSION` | UID sudah dipakai item lain dalam PO/session yang sama. | Tampilkan label DITOLAK dan minta admin memakai tag lain. |
+| `RFID_ALREADY_ASSIGNED_TO_PO` | UID masih dipakai pada PO lain. | Tampilkan PO lama bila tersedia; lepaskan dahulu atau selesaikan lifecycle-nya. |
+| `RFID_ALREADY_PLACED` | UID masih memiliki lifecycle placed/relocation. | Tampilkan DITOLAK; gunakan relokasi, outbound, atau trash sesuai kondisi barang. |
+| `RFID_NOT_REGISTERED` | UID belum terdaftar pada flow yang memang mensyaratkan master lebih dahulu. | Pada Admin realtime PO, UID baru akan didaftarkan dan dipasangkan otomatis; pada flow placement/mobile, daftarkan melalui master RFID. |
+| `RFID_REUSE_NOT_RELEASED` | UID masih terikat pada pack/lifecycle lama. | Lepaskan assignment atau selesaikan lifecycle outbound/trash sebelum assignment ulang. |
+| `RFID_DATA_INCONSISTENT` | Riwayat movement dan assignment RFID tidak konsisten. | Hentikan pemakaian UID dan minta Admin melakukan rekonsiliasi data. |
 | `no_remaining_pack` | Kebutuhan RFID item sudah penuh. | Hentikan scan dan arahkan ke label. |
+
+Pada modal **REALTIME RFID SCAN**, hanya tampilkan dua hasil: `BERHASIL` atau
+`DITOLAK`. Pembacaan berulang/duplikat tidak ditampilkan sebagai alert, tidak
+menambah riwayat, dan tidak membuat assignment kedua. Error tidak perlu
+ditampilkan sebagai alert global halaman. Orange Pi tetap mengirim event scan
+seperti biasa; FE menerima hasil melalui `scan.result`.
 
 ### 9.3 Progress RFID
 
@@ -1067,7 +1096,6 @@ Frontend **tidak boleh** mengirim `ordered_quantity` saat membuat atau mengubah 
 type PoSessionItemInput = {
   product_id: string; // UUID produk aktif
   ordered_supplier_pack_quantity: number; // integer > 0
-  min_outbound_units: number; // integer > 0; ukuran repack/RFID
   expires_on?: string | null; // YYYY-MM-DD
   notes?: string | null;
 };
@@ -1082,7 +1110,9 @@ type PoSessionItemComputed = {
 };
 ```
 
-Jika backend mengembalikan `400` dengan field `min_outbound_units`, jangan mencoba membulatkan hasil pembagian di frontend. Minta admin mengganti jumlah pack supplier atau ukuran repack sampai pembagian tepat.
+Jika backend mengembalikan `400` dengan field `min_outbound_units`, konfigurasi
+produk belum valid atau total order tidak dapat dibagi rata. Minta admin
+memperbaiki konfigurasi katalog atau jumlah pack supplier.
 
 ---
 
@@ -1159,9 +1189,9 @@ Validasi frontend meningkatkan pengalaman pengguna, tetapi backend tetap memvali
 
 - Produk wajib dipilih.
 - `ordered_supplier_pack_quantity` harus integer lebih dari 0.
-- `min_outbound_units` harus integer lebih dari 0.
+- `min_outbound_units` dibaca dari produk terpilih dan harus sudah valid di katalog.
 - Ambil `supplier_pack_units` dari produk terpilih untuk preview.
-- Pastikan `(ordered_supplier_pack_quantity × supplier_pack_units) % min_outbound_units === 0`.
+- Pastikan `(ordered_supplier_pack_quantity × supplier_pack_units) % product.min_outbound_units === 0`.
 - Bila expiry terisi, pakai input tanggal browser dan kirim `YYYY-MM-DD`.
 - Tampilkan kalkulasi RFID secara langsung.
 
@@ -1234,7 +1264,7 @@ Tampilkan modal konfirmasi untuk:
 
 - [ ] Daftar produk aktif.
 - [ ] Form tambah/ubah produk.
-- [ ] Tampilkan SKU, nama, satuan, dan SOP katalog.
+- [ ] Tampilkan SKU, nama, satuan, dan konfigurasi repack katalog.
 
 ### Session PO
 
@@ -1248,7 +1278,7 @@ Tampilkan modal konfirmasi untuk:
 ### Item PO
 
 - [ ] Pilih produk dari katalog.
-- [ ] Input total order dan SOP/minimum outbound.
+- [ ] Input total order; tampilkan minimum outbound dari katalog secara read-only.
 - [ ] Input expiry opsional.
 - [ ] Preview kebutuhan RFID sebelum submit.
 - [ ] Tabel progres `terpasang / dibutuhkan / tersisa`.
@@ -1286,7 +1316,7 @@ Bagian berikut penting agar frontend tidak mengasumsikan fitur yang belum tersed
 ## 18. Skenario QA wajib untuk frontend
 
 1. Buat session `PO-2026-001`.
-2. Tambah susu 50 pack supplier dengan isi supplier 12 pcs dan SOP repack 5 pcs.
+2. Pastikan katalog susu memiliki isi supplier 12 pcs dan minimum outbound 5 pcs, lalu tambah 50 pack supplier.
 3. Pastikan UI menampilkan total 600 pcs dan kebutuhan 120 RFID.
 4. Scan 120 UID unik dan pastikan setiap UID mendapat nomor paket 1–120.
 5. Coba scan UID yang sama lagi; pastikan tampil error dan jumlah tidak bertambah.

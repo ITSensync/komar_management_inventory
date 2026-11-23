@@ -1,5 +1,5 @@
 const sessionFields = ['session_number', 'reference_number', 'notes'];
-const itemFields = ['product_id', 'ordered_supplier_pack_quantity', 'min_outbound_units', 'expires_on', 'notes'];
+const itemFields = ['product_id', 'ordered_supplier_pack_quantity', 'expires_on', 'notes'];
 
 function normalizePoSession(input, current) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
@@ -41,7 +41,6 @@ function normalizePoSessionItem(input) {
   const data = {
     product_id: normalizeUuid(input.product_id, 'product_id', errors),
     ordered_supplier_pack_quantity: normalizePositiveInteger(input.ordered_supplier_pack_quantity, 'ordered_supplier_pack_quantity', errors),
-    min_outbound_units: normalizePositiveInteger(input.min_outbound_units, 'min_outbound_units', errors),
     expires_on: normalizeOptionalDate(input.expires_on, 'expires_on', errors),
     notes: normalizeOptionalText(input.notes, 'notes', 5000, errors),
   };
@@ -53,6 +52,10 @@ function calculateRepackPlan({ orderedSupplierPackQuantity, supplierPackUnits, m
   const errors = [];
   if (!Number.isInteger(supplierPackUnits) || supplierPackUnits < 1) {
     errors.push({ field: 'product_id', message: 'Product must have a positive supplier_pack_units value before it can be used in a PO session.' });
+    return { errors };
+  }
+  if (!Number.isInteger(minOutboundUnits) || minOutboundUnits < 1) {
+    errors.push({ field: 'product_id', message: 'Product must have a positive min_outbound_units value before it can be used in a PO session.' });
     return { errors };
   }
   const orderedQuantity = orderedSupplierPackQuantity * supplierPackUnits;

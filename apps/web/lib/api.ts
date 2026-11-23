@@ -137,8 +137,8 @@ export type PoSession = {
   labelPrintJobs?: LabelPrintJob[];
 };
 export type RfidProgress = { po_session_item_id: string; required_rfid_count: number; assigned_rfid_count: number; remaining_rfid_count: number; status: string };
-export type ScanResult = { index: number; rfid_number: string; id?: number; pack_plan_id?: string; pack_number?: number; label_code?: string };
-export type ScanError = { index: number; rfid_number?: string; code: string; message: string };
-export type ScanResponse = { success: true; total_requested: number; total_assigned: number; total_errors: number; remaining_rfid_count: number; results: ScanResult[]; errors: ScanError[] };
+export type ScanResult = { index: number; rfid_number: string; id?: number; pack_plan_id?: string; pack_number?: number; label_code?: string; registered_now?: boolean; code?: string };
+export type ScanError = { index?: number; rfid_number?: string; code: string; message: string; session_number?: string; po_session_item_id?: string; product_name?: string; placement_status?: string };
+export type ScanResponse = { success: boolean; total_requested: number; total_assigned: number; total_errors: number; remaining_rfid_count: number; results: ScanResult[]; errors: ScanError[] };
 export type LabelSnapshot = { session_number: string; sku: string; product_name: string; base_unit: string; units: number; pack_number: number; expiry_date?: string | null; rfid_uid: string; label_code: string };
 export type PrintJobDetail = LabelPrintJob & { items: Array<{ id?: string; label_snapshot: LabelSnapshot }> };

@@ -185,12 +185,24 @@ Tambahkan susu 250 ml ke session:
 {
   "product_id": "UUID_PRODUK",
   "ordered_supplier_pack_quantity": 50,
-  "min_outbound_units": 5,
   "expires_on": "2026-12-31"
 }
 ```
 
-Scan UID untuk satu item menggunakan `rfid_tags`. UID baru akan disimpan dan langsung dipasangkan ke paket rencana berikutnya; UID yang sudah dipakai akan ditolak.
+`supplier_pack_units` dan `min_outbound_units` dibaca dari katalog produk.
+PO Session tidak lagi menerima `min_outbound_units`; nilai tersebut tetap
+disimpan sebagai snapshot pada item PO untuk menjaga histori dan menghitung
+jumlah pack/RFID secara konsisten.
+
+Scan UID untuk satu item menggunakan `rfid_tags`. Pada alur Admin realtime PO,
+UID baru yang belum ada di master akan didaftarkan dan langsung dipasangkan
+secara atomik. UID yang masih dipakai, sudah placed, atau duplikat akan ditolak.
+
+Aturan reuse UID: UID yang belum pernah masuk session boleh dipakai; UID yang
+sudah `unplaced`, `placed`, atau `relocation` tidak boleh dipakai pada pack
+lain; UID boleh dipakai kembali setelah assignment dilepas atau lifecycle
+berhasil menjadi `outbound`/`trash`. Pembacaan duplicate dari reader diabaikan
+tanpa alert frontend dan tidak membuat assignment kedua.
 
 ```json
 {

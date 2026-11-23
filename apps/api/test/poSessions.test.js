@@ -18,13 +18,12 @@ test('calculates RFID packs from supplier-pack input and rejects repack remainde
   const input = normalizePoSessionItem({
     product_id: 'a5e2a649-0a2f-4ce2-ae59-b4c7b8e4fa01',
     ordered_supplier_pack_quantity: 50,
-    min_outbound_units: 5,
     expires_on: '2026-12-31',
   });
   const valid = calculateRepackPlan({
     orderedSupplierPackQuantity: input.data.ordered_supplier_pack_quantity,
     supplierPackUnits: 12,
-    minOutboundUnits: input.data.min_outbound_units,
+    minOutboundUnits: 5,
   });
   const invalid = calculateRepackPlan({
     orderedSupplierPackQuantity: 1,
@@ -44,8 +43,26 @@ test('rejects the retired base-unit input field for new session items', () => {
   const result = normalizePoSessionItem({
     product_id: 'a5e2a649-0a2f-4ce2-ae59-b4c7b8e4fa01',
     ordered_quantity: 50,
-    min_outbound_units: 5,
   });
 
   assert.equal(result.errors[0].field, 'ordered_quantity');
+});
+
+test('rejects min_outbound_units on PO item because it comes from the product catalog', () => {
+  const result = normalizePoSessionItem({
+    product_id: 'a5e2a649-0a2f-4ce2-ae59-b4c7b8e4fa01',
+    ordered_supplier_pack_quantity: 50,
+    min_outbound_units: 5,
+  });
+
+  assert.equal(result.errors[0].field, 'min_outbound_units');
+  assert.match(result.errors[0].message, /not allowed/i);
+});
+
+test('rejects duplicate RFID values in one assignment request before persistence', () => {
+  const { normalizeRfidTags } = require('../utils/rfidTags');
+  const result = normalizeRfidTags(['E280ABC', 'e280abc']);
+
+  assert.equal(result.errors[0].code, 'duplicate_in_request');
+  assert.equal(result.tags.length, 1);
 });

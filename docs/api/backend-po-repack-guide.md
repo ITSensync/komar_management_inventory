@@ -145,13 +145,14 @@ Validasi:
 {
   "product_id": "PRODUCT_UUID",
   "ordered_supplier_pack_quantity": 50,
-  "min_outbound_units": 5,
   "expires_on": "2026-12-31",
   "notes": "Repack untuk gudang"
 }
 ```
 
-`min_outbound_units` tetap dikirim pada item agar admin dapat memakai ukuran repack berbeda dari default produk, selama belum ada RFID yang terpasang.
+`supplier_pack_units` dan `min_outbound_units` dibaca dari produk aktif yang
+dipilih. PO Session tidak lagi menerima `min_outbound_units` sebagai input;
+nilai produk disalin ke snapshot item untuk histori.
 
 ### Algoritme wajib backend
 
@@ -160,13 +161,14 @@ Lakukan seluruh langkah berikut dalam satu transaksi database.
 ```text
 1. Pastikan PO session berstatus active.
 2. Ambil produk berstatus active.
-3. Salin supplier_pack_units dan supplier_pack_label ke snapshot item.
-4. ordered_quantity = ordered_supplier_pack_quantity × supplier_pack_units_snapshot.
-5. Tolak bila ordered_quantity % min_outbound_units !== 0.
-6. required_rfid_count = ordered_quantity ÷ min_outbound_units.
-7. Buat tepat required_rfid_count pack plan kosong.
-8. Set setiap pack plan.units = min_outbound_units.
-9. Simpan item, snapshot, dan seluruh pack plan.
+3. Validasi product.supplier_pack_units dan product.min_outbound_units positif.
+4. Salin supplier_pack_units, supplier_pack_label, dan min_outbound_units ke snapshot item.
+5. ordered_quantity = ordered_supplier_pack_quantity × supplier_pack_units_snapshot.
+6. Tolak bila ordered_quantity % min_outbound_units !== 0.
+7. required_rfid_count = ordered_quantity ÷ min_outbound_units.
+8. Buat tepat required_rfid_count pack plan kosong.
+9. Set setiap pack plan.units = min_outbound_units.
+10. Simpan item, snapshot, dan seluruh pack plan.
 ```
 
 Contoh:
