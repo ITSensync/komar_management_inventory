@@ -23,7 +23,7 @@ function planInclude() {
   return [{
     model: PoSessionItem,
     as: 'item',
-    attributes: ['id', 'po_session_id', 'product_id', 'sku_snapshot', 'product_name_snapshot', 'base_unit_snapshot', 'expires_on'],
+    attributes: ['id', 'po_session_id', 'product_id', 'sku_snapshot', 'product_name_snapshot', 'base_unit_snapshot', 'expires_on', 'status'],
     include: [
       { model: Product, as: 'product', attributes: ['id', 'sku', 'name'] },
       { model: PoSession, as: 'session', attributes: ['id', 'session_number', 'status'] },
