@@ -74,8 +74,8 @@ export function PrintJobPage({ printJobId, sessionId }: { printJobId: string; se
       {job.items.map(({ label_snapshot: label }, index) => <article key={`${label.label_code}-${index}`} className="print-card rounded-xl border border-slate-600 bg-white p-5 text-slate-950 shadow-xl">
         <h2 className="label-product text-2xl font-black leading-none">{label.product_name}</h2>
         <div className="label-divider my-5 border-t border-slate-300"/>
-        <div className="label-meta grid grid-cols-2 gap-x-4 gap-y-3">
-          <div className="label-session col-span-2 min-w-0">
+        <div className="label-meta grid grid-cols-2 gap-x-4 gap-y-3 text-center">
+          <div className="label-session min-w-0">
             <span className="label-key block text-xs text-slate-500">Session</span>
             <strong className="label-value block truncate font-mono text-base font-black">{label.session_number}</strong>
           </div>
@@ -83,13 +83,10 @@ export function PrintJobPage({ printJobId, sessionId }: { printJobId: string; se
             <span className="label-key block text-xs text-slate-500">Isi</span>
             <strong className="label-value block truncate text-base font-black">{label.units} {label.base_unit}</strong>
           </div>
-          <div className="min-w-0">
+          <div className="label-expiry col-span-2 min-w-0">
             <span className="label-key block text-xs text-slate-500">Expiry</span>
             <strong className="label-value block truncate text-base font-black">{label.expiry_date ?? "—"}</strong>
           </div>
-        </div>
-        <div className="label-rfid mt-5 rounded border border-slate-300 p-3">
-          <p className="label-rfid-value break-all font-mono text-sm font-black">{label.rfid_uid}</p>
         </div>
       </article>)}
     </section>

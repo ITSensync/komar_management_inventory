@@ -925,6 +925,11 @@ Format tersedia:
 | `pdf` | Browser menampilkan preview/print dialog atau aplikasi print bridge menerima PDF. |
 | `zpl` | Printer Zebra atau print bridge yang menerima format ZPL. |
 
+Untuk UI Admin standar, gunakan satu opsi saja: **Buat Label** dengan format
+`pdf`. Dukungan `zpl` tetap dipertahankan pada API untuk kompatibilitas print
+bridge atau integrasi Zebra khusus, tetapi tidak ditampilkan kepada user agar
+alur tidak membingungkan.
+
 **Digunakan ketika:** semua RFID item sudah lengkap dan admin menekan **Buat Label**.
 
 Backend menolak bila masih ada RFID yang belum terpasang. Jika item sudah memiliki

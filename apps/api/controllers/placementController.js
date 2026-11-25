@@ -14,6 +14,13 @@ async function createPlacement(req, res, next) {
   } catch (error) { next(error); }
 }
 
+async function previewRelocation(req, res, next) {
+  try {
+    const result = await placementService.previewRelocation(req.body);
+    res.status(result.status).json(result.body);
+  } catch (error) { next(error); }
+}
+
 async function createRelocation(req, res, next) {
   try {
     const result = await placementService.createRelocation(req.body);
@@ -48,4 +55,5 @@ module.exports = {
   createTrash,
   listPlacementHistory,
   previewPlacement,
+  previewRelocation,
 };

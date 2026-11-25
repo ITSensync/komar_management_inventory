@@ -116,10 +116,56 @@ async function createScanSession(itemId, input = {}) {
 
   const existing = await RfidScanSession.findOne({
     where: { po_session_item_id: itemId, status: { [Op.in]: ['starting', 'active'] } },
+    order: [['createdAt', 'DESC']],
   });
-  if (existing) {
-    logger.warn('scan.start_rejected', { item_id: itemId, reader_code: readerCode, reason: 'scan_already_active', scan_session_id: existing.id });
-    return failure(409, 'This item already has an active RFID scan session.');
+  if (existing && new Date(existing.expires_at).getTime() <= Date.now()) {
+    await expireScanSession(existing.id);
+  }
+
+  if (existing && new Date(existing.expires_at).getTime() > Date.now()) {
+    if (existing.reader_code === readerCode) {
+      scheduleExpiry(existing);
+      const resumed = sendToReader(readerCode, startCommand(existing));
+      if (!resumed) return failure(503, `RFID reader ${readerCode} disconnected while resuming the active scan session.`);
+      logger.info('scan.reused', { item_id: itemId, reader_code: readerCode, scan_session_id: existing.id });
+      return {
+        status: 200,
+        body: {
+          success: true,
+          reused: true,
+          data: {
+            id: existing.id,
+            po_session_item_id: itemId,
+            reader_code: existing.reader_code,
+            status: existing.status,
+            expires_at: existing.expires_at,
+          },
+        },
+      };
+    }
+
+    const existingReaderConnected = isReaderConnected(existing.reader_code);
+    if (!existingReaderConnected) {
+      await stopScanSession(existing.id);
+      logger.warn('scan.stale_session_reclaimed', {
+        item_id: itemId,
+        previous_reader_code: existing.reader_code,
+        scan_session_id: existing.id,
+      });
+    } else {
+      logger.warn('scan.start_rejected', {
+        item_id: itemId,
+        reader_code: readerCode,
+        reason: 'scan_already_active',
+        scan_session_id: existing.id,
+      });
+      return failure(409, 'This item already has an active RFID scan session.', [{
+        code: 'scan_already_active',
+        scan_session_id: existing.id,
+        reader_code: existing.reader_code,
+        message: 'Tutup scanner pada perangkat lain sebelum memulai scan baru.',
+      }]);
+    }
   }
 
   const readerBusy = await RfidScanSession.findOne({

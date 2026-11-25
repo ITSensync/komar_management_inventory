@@ -364,8 +364,10 @@ paths:
       responses:
         '201':
           description: Realtime scan session created and reader start command sent
+        '200':
+          description: Existing active scan session for the same item and reader was resumed
         '409':
-          description: Item already has an active scan session
+          description: Item already has an active scan session on another connected reader
         '503':
           description: Reader gateway is not connected
   /api/rfid-scan-sessions/{id}:
@@ -601,6 +603,42 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
           description: Rack, RFID, or idempotency conflict
+         content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/mobile/placements/relocation/preview:
+    post:
+      tags: [Site Employee Placement]
+      summary: Preview a multi-source relocation without changing inventory
+      description: Select one active destination rack, scan RFID packs from one or more source racks, and review every item before the atomic relocation submit.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RelocationPreviewRequest'
+      responses:
+        '200':
+          description: Relocation preview including source and destination rack details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RelocationPreviewResponse'
+        '400':
+          description: Invalid RFID list or destination rack input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Destination rack not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Destination rack is inactive
           content:
             application/json:
               schema:
@@ -1200,6 +1238,20 @@ components:
           items:
             type: string
           example: [E2806894000040168D432183, E2806894000040168D43218C]
+    RelocationPreviewRequest:
+      type: object
+      required: [rack_id, rfid_numbers]
+      properties:
+        rack_id:
+          type: string
+          format: uuid
+          description: One active destination rack for all submitted RFID packs.
+        rfid_numbers:
+          type: array
+          minItems: 1
+          items:
+            type: string
+          description: RFID packs may come from multiple source racks.
     PlacementRequest:
       type: object
       required: [rack_id, rfid_numbers, client_request_id]
@@ -1258,7 +1310,7 @@ components:
         error_code:
           type: string
           description: Present when the RFID cannot be placed.
-          enum: [RFID_NOT_REGISTERED, PACK_PLAN_NOT_FOUND, RFID_ALREADY_PLACED, RFID_ACTION_ALREADY_COMPLETED, PACK_PLAN_CANCELLED]
+          enum: [RFID_NOT_REGISTERED, PACK_PLAN_NOT_FOUND, RFID_ADMIN_NOT_READY, RFID_ALREADY_PLACED, RFID_ACTION_ALREADY_COMPLETED, PACK_PLAN_CANCELLED, RFID_NOT_PLACED, RFID_LOCATION_NOT_FOUND, SAME_RACK]
         message:
           type: string
         rfid_tag_id:
@@ -1278,6 +1330,10 @@ components:
           type: string
         product_name:
           type: string
+        units:
+          type: integer
+        base_unit:
+          type: string
         expires_on:
           type: string
           format: date
@@ -1289,6 +1345,47 @@ components:
           allOf:
             - $ref: '#/components/schemas/Rack'
           nullable: true
+        admin_readiness:
+          type: object
+          description: Present when Admin has not completed all placement prerequisites.
+          properties:
+            assigned:
+              type: boolean
+            label_printed:
+              type: boolean
+            session_completed:
+              type: boolean
+    RelocationPreviewResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          required: [eligible, target_rack, items]
+          properties:
+            eligible:
+              type: boolean
+              description: True only when every scanned RFID can be relocated.
+            target_rack:
+              $ref: '#/components/schemas/Rack'
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/RelocationPreviewItem'
+    RelocationPreviewItem:
+      allOf:
+        - $ref: '#/components/schemas/PlacementPreviewItem'
+        - type: object
+          properties:
+            units:
+              type: integer
+            base_unit:
+              type: string
+            target_rack:
+              $ref: '#/components/schemas/Rack'
+          description: Eligible items include current_rack and target_rack; invalid items include error_code and message.
     PlacementResponse:
       type: object
       required: [success, data]
@@ -1371,6 +1468,10 @@ components:
         sku:
           type: string
         product_name:
+          type: string
+        units:
+          type: integer
+        base_unit:
           type: string
         expires_on:
           type: string

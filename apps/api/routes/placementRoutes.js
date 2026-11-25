@@ -4,6 +4,7 @@ const controller = require('../controllers/placementController');
 const router = express.Router();
 
 router.post('/mobile/placements/preview', controller.previewPlacement);
+router.post('/mobile/placements/relocation/preview', controller.previewRelocation);
 router.post('/mobile/placements', controller.createPlacement);
 router.post('/mobile/placements/relocation', controller.createRelocation);
 router.post('/mobile/placements/outbound', controller.createOutbound);

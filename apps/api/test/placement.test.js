@@ -1,9 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { normalizePlacementRequest } = require('../utils/placement');
+const { normalizePlacementRequest, normalizeRelocationPreviewRequest } = require('../utils/placement');
 const { normalizeInventoryActionRequest } = require('../utils/inventoryActions');
 const { canClose, canPlace, canRelocate, canReuse } = require('../utils/rfidLifecycle');
 const { normalizeRack } = require('../utils/racks');
+const { ADMIN_NOT_READY_MESSAGE, adminReadiness, adminNotReadyError } = require('../utils/placementEligibility');
 
 test('normalizes a mobile placement batch and RFID numbers', () => {
   const result = normalizePlacementRequest({
@@ -18,6 +19,48 @@ test('normalizes a mobile placement batch and RFID numbers', () => {
     rfid_numbers: ['E280ABC', 'E280DEF'],
     client_request_id: 'mobile-request-1',
   });
+});
+
+test('normalizes a relocation preview with a destination rack and no submission id', () => {
+  const result = normalizeRelocationPreviewRequest({
+    rack_id: ' target-rack ',
+    rfid_numbers: [' e280abc ', 'E280DEF'],
+  });
+
+  assert.deepEqual(result.errors, []);
+  assert.deepEqual(result.data, {
+    rack_id: 'target-rack',
+    rfid_numbers: ['E280ABC', 'E280DEF'],
+  });
+});
+
+test('requires RFID assignment, printed label, and completed PO session before placement', () => {
+  const tag = { id: 7 };
+  const basePlan = {
+    rfid_tag_id: 7,
+    status: 'tag_assigned',
+    item: { status: 'printed', session: { status: 'completed' } },
+  };
+
+  assert.deepEqual(adminReadiness(basePlan, tag), {
+    eligible: false,
+    assigned: true,
+    label_printed: false,
+    session_completed: true,
+  });
+
+  const readyPlan = {
+    ...basePlan,
+    status: 'label_printed',
+  };
+  assert.deepEqual(adminReadiness(readyPlan, tag), {
+    eligible: true,
+    assigned: true,
+    label_printed: true,
+    session_completed: true,
+  });
+
+  assert.equal(adminNotReadyError('E280ABC', adminReadiness(basePlan, tag)).message, ADMIN_NOT_READY_MESSAGE);
 });
 
 test('rejects duplicate RFID numbers before a placement transaction', () => {
