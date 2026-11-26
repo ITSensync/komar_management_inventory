@@ -31,6 +31,14 @@ async function getTag(req, res, next) {
   }
 }
 
+async function getTagHistory(req, res, next) {
+  try {
+    const history = await rfidService.listTagHistory(req.params.id);
+    if (!history) return res.status(404).json({ success: false, message: 'RFID tag not found.' });
+    return res.json({ success: true, data: history });
+  } catch (error) { return next(error); }
+}
+
 async function removeTag(req, res, next) {
   try {
     const result = await rfidService.deleteTag(req.params.id);
@@ -47,4 +55,4 @@ async function removeTag(req, res, next) {
   }
 }
 
-module.exports = { getTag, listTags, registerTags, removeTag };
+module.exports = { getTag, getTagHistory, listTags, registerTags, removeTag };

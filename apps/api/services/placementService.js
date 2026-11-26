@@ -14,6 +14,7 @@ const { normalizePlacementRequest, normalizeRelocationPreviewRequest } = require
 const { normalizeInventoryActionRequest } = require('../utils/inventoryActions');
 const { canClose, canRelocate, canReuse } = require('../utils/rfidLifecycle');
 const { ADMIN_NOT_READY_MESSAGE, adminReadiness, adminNotReadyError } = require('../utils/placementEligibility');
+const { recordRfidLifecycleEvent } = require('./rfidHistoryService');
 
 function failure(status, message, errors) {
   return { status, body: { success: false, message, ...(errors ? { errors } : {}) } };
@@ -334,6 +335,16 @@ async function createPlacement(input) {
       createdAt,
       updatedAt: createdAt,
     })), { transaction });
+    for (const { tag, plan } of records) {
+      await recordRfidLifecycleEvent({
+        rfid_tag_id: tag.id,
+        event_type: 'placed',
+        po_pack_plan_id: plan.id,
+        po_session_id: plan.item.po_session_id,
+        to_rack_id: rack.id,
+        source: 'mobile',
+      }, { transaction });
+    }
 
     return {
       status: 201,
@@ -428,6 +439,17 @@ async function createRelocation(input) {
       createdAt: movedAt,
       updatedAt: movedAt,
     })), { transaction });
+    for (const { tag, plan, fromRackId } of records) {
+      await recordRfidLifecycleEvent({
+        rfid_tag_id: tag.id,
+        event_type: 'relocated',
+        po_pack_plan_id: plan.id,
+        po_session_id: plan.item.po_session_id,
+        from_rack_id: fromRackId,
+        to_rack_id: rack.id,
+        source: 'mobile',
+      }, { transaction });
+    }
 
     return {
       status: 201,
@@ -509,6 +531,23 @@ async function createTerminalMovement(input, movementType) {
       createdAt: processedAt,
       updatedAt: processedAt,
     })), { transaction });
+    for (const { tag, plan, fromRackId } of records) {
+      await recordRfidLifecycleEvent({
+        rfid_tag_id: tag.id,
+        event_type: movementType,
+        po_pack_plan_id: plan.id,
+        po_session_id: plan.item.po_session_id,
+        from_rack_id: fromRackId,
+        source: 'mobile',
+      }, { transaction });
+      await recordRfidLifecycleEvent({
+        rfid_tag_id: tag.id,
+        event_type: 'available_for_reuse',
+        po_pack_plan_id: plan.id,
+        po_session_id: plan.item.po_session_id,
+        source: 'mobile',
+      }, { transaction });
+    }
 
     return {
       status: 201,

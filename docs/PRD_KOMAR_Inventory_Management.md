@@ -24,10 +24,11 @@ Implementasi aktif mencakup:
 Database aktif hanya memakai tabel PO/RFID/label/scan yang dijelaskan pada
 `docs/database/ERD_KOMAR_Inventory_Management.md`.
 
-Fitur berikut tetap menjadi rencana fase berikutnya dan belum tersedia pada release ini:
+Fitur berikut tetap menjadi rencana fase berikutnya dan belum tersedia pada release ini (kecuali report opname dasar yang sudah tersedia):
 
 - receiving dan repacking oleh site employee;
-- lokasi/rak, penempatan, opname, dan relokasi;
+- lokasi/rak, penempatan, dan relokasi lanjutan;
+- persetujuan selisih opname oleh supervisor dan adjustment stok;
 - outbound dan pelepasan tag;
 - login, role, authorization, audit log, dan multi-site;
 - aplikasi mobile React Native.

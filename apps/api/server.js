@@ -11,6 +11,7 @@ const productRoutes = require('./routes/productRoutes');
 const poSessionRoutes = require('./routes/poSessionRoutes');
 const rackRoutes = require('./routes/rackRoutes');
 const placementRoutes = require('./routes/placementRoutes');
+const stocktakeRoutes = require('./routes/stocktakeRoutes');
 const errorHandler = require('./middleware/errorHandler');
 const requestLogger = require('./middleware/requestLogger');
 const readerSocketService = require('./services/readerSocketService');
@@ -47,6 +48,7 @@ app.use('/api', productRoutes);
 app.use('/api', poSessionRoutes);
 app.use('/api', rackRoutes);
 app.use('/api', placementRoutes);
+app.use('/api', stocktakeRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {

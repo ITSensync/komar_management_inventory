@@ -15,6 +15,7 @@ const {
 const { normalizeRfidTags } = require('../utils/rfidTags');
 const { calculateRepackPlan, normalizePoSession, normalizePoSessionItem, normalizePrintFormat } = require('../utils/poSessions');
 const { evaluateRfidEligibility } = require('../utils/rfidEligibility');
+const { recordRfidLifecycleEvent } = require('./rfidHistoryService');
 
 function validationResult(errors) {
   return { status: 400, body: { success: false, message: 'Validation failed.', errors } };
@@ -292,6 +293,14 @@ async function scanRfidTags(itemId, rfidTags, externalTransaction = null) {
           transaction,
         });
         await tag.reload({ transaction, lock: transaction.LOCK.UPDATE });
+        if (registeredNow) {
+          await recordRfidLifecycleEvent({
+            rfid_tag_id: tag.id,
+            event_type: 'registered',
+            po_session_id: session.id,
+            source: 'admin',
+          }, { transaction });
+        }
         if (!registeredNow) {
           existingPlan = await PoPackPlan.findOne({
             where: { rfid_tag_id: tag.id },
@@ -354,6 +363,13 @@ async function scanRfidTags(itemId, rfidTags, externalTransaction = null) {
         rfid_tag_id: tag.id,
         status: 'tag_assigned',
         assigned_at: new Date(),
+      }, { transaction });
+      await recordRfidLifecycleEvent({
+        rfid_tag_id: tag.id,
+        event_type: 'assigned_to_pack',
+        po_pack_plan_id: plan.id,
+        po_session_id: session.id,
+        source: 'admin',
       }, { transaction });
       results.push({
         ...scannedTag,
@@ -520,6 +536,17 @@ async function markPrintJobPrinted(jobId) {
     const planIds = printItems.map((printItem) => printItem.po_pack_plan_id);
     const plans = await PoPackPlan.findAll({ where: { id: { [Op.in]: planIds } }, transaction, lock: transaction.LOCK.UPDATE });
     await PoPackPlan.update({ status: 'label_printed' }, { where: { id: { [Op.in]: planIds } }, transaction });
+    for (const plan of plans) {
+      if (plan.rfid_tag_id) {
+        await recordRfidLifecycleEvent({
+          rfid_tag_id: plan.rfid_tag_id,
+          event_type: 'label_printed',
+          po_pack_plan_id: plan.id,
+          po_session_id: job.po_session_id,
+          source: 'admin',
+        }, { transaction });
+      }
+    }
     await job.update({ status: 'printed', printed_at: new Date() }, { transaction });
 
     const itemIds = [...new Set(plans.map((plan) => plan.po_session_item_id))];
@@ -598,7 +625,22 @@ async function completeSession(sessionId) {
     if (incompleteItems) {
       return failure(409, 'All items must have printed labels before the PO session can be completed.');
     }
+    const plans = await PoPackPlan.findAll({
+      include: [{ model: PoSessionItem, as: 'item', where: { po_session_id: session.id }, attributes: [] }],
+      where: { rfid_tag_id: { [Op.not]: null } },
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
     await session.update({ status: 'completed' }, { transaction });
+    for (const plan of plans) {
+      await recordRfidLifecycleEvent({
+        rfid_tag_id: plan.rfid_tag_id,
+        event_type: 'po_completed',
+        po_pack_plan_id: plan.id,
+        po_session_id: session.id,
+        source: 'admin',
+      }, { transaction });
+    }
     return { status: 200, body: { success: true, data: session } };
   });
 }

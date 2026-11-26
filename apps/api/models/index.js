@@ -165,6 +165,90 @@ const RfidScanEvent = sequelize.define('RfidScanEvent', {
   { fields: ['rfid_scan_session_id', 'rfid_number'] },
 ]));
 
+// Stocktake is deliberately separate from the PO RFID scan tables above. A PO
+// scan assigns a tag to a new pack, while a stocktake records an observation of
+// inventory that has already been placed.
+const StocktakeSession = sequelize.define('StocktakeSession', {
+  id: uuid,
+  session_number: { type: DataTypes.STRING(100), allowNull: false, unique: true },
+  session_date: { type: DataTypes.DATEONLY, allowNull: false },
+  status: { type: DataTypes.ENUM('draft', 'submitted', 'cancelled'), allowNull: false, defaultValue: 'draft' },
+  notes: DataTypes.TEXT,
+  started_at: DataTypes.DATE,
+  submitted_at: DataTypes.DATE,
+  created_by: DataTypes.STRING(100),
+  submitted_by: DataTypes.STRING(100),
+}, options('stocktake_sessions', [{ fields: ['status', 'created_at'] }, { fields: ['session_date'] }]));
+
+const StocktakeSessionItem = sequelize.define('StocktakeSessionItem', {
+  id: uuid,
+  stocktake_session_id: { type: DataTypes.UUID, allowNull: false },
+  rfid_tag_id: { type: DataTypes.INTEGER, allowNull: false },
+  po_pack_plan_id: { type: DataTypes.UUID, allowNull: false },
+  rfid_number_snapshot: { type: DataTypes.STRING(255), allowNull: false },
+  pack_number_snapshot: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false },
+  label_code_snapshot: { type: DataTypes.STRING(100), allowNull: false },
+  sku_snapshot: { type: DataTypes.STRING(100), allowNull: false },
+  product_name_snapshot: { type: DataTypes.STRING(255), allowNull: false },
+  base_unit_snapshot: { type: DataTypes.STRING(20), allowNull: false },
+  units_snapshot: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false },
+  expected_rack_id: { type: DataTypes.UUID, allowNull: false },
+  expected_rack_code_snapshot: { type: DataTypes.STRING(100), allowNull: false },
+  expected_rack_name_snapshot: { type: DataTypes.STRING(255), allowNull: false },
+  observed_rack_id: { type: DataTypes.UUID, allowNull: true },
+  observed_at: DataTypes.DATE,
+  scan_count: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false, defaultValue: 0 },
+  result: { type: DataTypes.ENUM('pending', 'matched', 'missing', 'lifecycle_changed'), allowNull: false, defaultValue: 'pending' },
+}, options('stocktake_session_items', [
+  { unique: true, fields: ['stocktake_session_id', 'rfid_tag_id'] },
+  { fields: ['stocktake_session_id', 'result'] },
+  { fields: ['expected_rack_id'] },
+]));
+
+const StocktakeScanEvent = sequelize.define('StocktakeScanEvent', {
+  id: uuid,
+  stocktake_session_id: { type: DataTypes.UUID, allowNull: false },
+  stocktake_session_item_id: { type: DataTypes.UUID, allowNull: true },
+  rfid_tag_id: { type: DataTypes.INTEGER, allowNull: true },
+  event_id: { type: DataTypes.STRING(255), allowNull: false, unique: true },
+  rfid_number: { type: DataTypes.STRING(255), allowNull: false },
+  observed_at: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+  status: { type: DataTypes.ENUM('accepted', 'duplicate', 'rejected'), allowNull: false },
+  error_code: DataTypes.STRING(100),
+  result: DataTypes.JSON,
+}, options('stocktake_scan_events', [
+  { fields: ['stocktake_session_id', 'observed_at'] },
+  { fields: ['stocktake_session_id', 'rfid_number'] },
+]));
+
+// This is the cross-cycle audit trail for a reusable physical RFID tag. The
+// existing inventory_movements table remains the source of truth for physical
+// movement; this table also captures Admin/stocktake lifecycle milestones.
+const RfidLifecycleEvent = sequelize.define('RfidLifecycleEvent', {
+  id: uuid,
+  rfid_tag_id: { type: DataTypes.INTEGER, allowNull: false },
+  cycle_number: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false, defaultValue: 1 },
+  event_type: {
+    type: DataTypes.ENUM(
+      'registered', 'assigned_to_pack', 'label_printed', 'po_completed',
+      'placed', 'relocated', 'stocktake_seen', 'stocktake_submitted',
+      'outbound', 'trash', 'available_for_reuse', 'retired',
+    ),
+    allowNull: false,
+  },
+  po_pack_plan_id: { type: DataTypes.UUID, allowNull: true },
+  po_session_id: { type: DataTypes.UUID, allowNull: true },
+  stocktake_session_id: { type: DataTypes.UUID, allowNull: true },
+  from_rack_id: { type: DataTypes.UUID, allowNull: true },
+  to_rack_id: { type: DataTypes.UUID, allowNull: true },
+  source: { type: DataTypes.STRING(50), allowNull: false, defaultValue: 'system' },
+  metadata: { type: DataTypes.JSON, allowNull: true },
+}, options('rfid_lifecycle_events', [
+  { fields: ['rfid_tag_id', 'created_at'] },
+  { fields: ['rfid_tag_id', 'cycle_number', 'created_at'] },
+  { fields: ['event_type', 'created_at'] },
+]));
+
 PoSession.hasMany(PoSessionItem, { foreignKey: 'po_session_id', as: 'items' });
 PoSessionItem.belongsTo(PoSession, { foreignKey: 'po_session_id', as: 'session' });
 Product.hasMany(PoSessionItem, { foreignKey: 'product_id', as: 'poSessionItems' });
@@ -177,6 +261,23 @@ PoSessionItem.hasMany(RfidScanSession, { foreignKey: 'po_session_item_id', as: '
 RfidScanSession.belongsTo(PoSessionItem, { foreignKey: 'po_session_item_id', as: 'item' });
 RfidScanSession.hasMany(RfidScanEvent, { foreignKey: 'rfid_scan_session_id', as: 'events' });
 RfidScanEvent.belongsTo(RfidScanSession, { foreignKey: 'rfid_scan_session_id', as: 'scanSession' });
+StocktakeSession.hasMany(StocktakeSessionItem, { foreignKey: 'stocktake_session_id', as: 'items' });
+StocktakeSessionItem.belongsTo(StocktakeSession, { foreignKey: 'stocktake_session_id', as: 'session' });
+StocktakeSessionItem.belongsTo(RfidTag, { foreignKey: 'rfid_tag_id', as: 'rfidTag' });
+StocktakeSessionItem.belongsTo(PoPackPlan, { foreignKey: 'po_pack_plan_id', as: 'packPlan' });
+StocktakeSessionItem.belongsTo(Rack, { foreignKey: 'expected_rack_id', as: 'expectedRack' });
+StocktakeSessionItem.belongsTo(Rack, { foreignKey: 'observed_rack_id', as: 'observedRack' });
+StocktakeSession.hasMany(StocktakeScanEvent, { foreignKey: 'stocktake_session_id', as: 'scanEvents' });
+StocktakeScanEvent.belongsTo(StocktakeSession, { foreignKey: 'stocktake_session_id', as: 'session' });
+StocktakeScanEvent.belongsTo(StocktakeSessionItem, { foreignKey: 'stocktake_session_item_id', as: 'sessionItem' });
+StocktakeScanEvent.belongsTo(RfidTag, { foreignKey: 'rfid_tag_id', as: 'rfidTag' });
+RfidTag.hasMany(RfidLifecycleEvent, { foreignKey: 'rfid_tag_id', as: 'lifecycleEvents' });
+RfidLifecycleEvent.belongsTo(RfidTag, { foreignKey: 'rfid_tag_id', as: 'rfidTag' });
+RfidLifecycleEvent.belongsTo(PoPackPlan, { foreignKey: 'po_pack_plan_id', as: 'packPlan' });
+RfidLifecycleEvent.belongsTo(PoSession, { foreignKey: 'po_session_id', as: 'poSession' });
+RfidLifecycleEvent.belongsTo(StocktakeSession, { foreignKey: 'stocktake_session_id', as: 'stocktakeSession' });
+RfidLifecycleEvent.belongsTo(Rack, { foreignKey: 'from_rack_id', as: 'fromRack' });
+RfidLifecycleEvent.belongsTo(Rack, { foreignKey: 'to_rack_id', as: 'toRack' });
 PoSession.hasMany(LabelPrintJob, { foreignKey: 'po_session_id', as: 'labelPrintJobs' });
 LabelPrintJob.belongsTo(PoSession, { foreignKey: 'po_session_id', as: 'session' });
 PoSessionItem.hasMany(LabelPrintJob, { foreignKey: 'po_session_item_id', as: 'labelPrintJobs' });
@@ -207,6 +308,10 @@ module.exports = {
   RfidTag,
   RfidScanSession,
   RfidScanEvent,
+  StocktakeSession,
+  StocktakeSessionItem,
+  StocktakeScanEvent,
+  RfidLifecycleEvent,
   Rack,
   InventoryMovement,
 };

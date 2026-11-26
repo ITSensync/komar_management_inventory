@@ -1,4 +1,4 @@
-const { sequelize } = require('../models');
+const { sequelize, RfidTag, InventoryMovement, RfidLifecycleEvent } = require('../models');
 const { DataTypes } = require('sequelize');
 
 const alter = process.argv.includes('--alter');
@@ -9,6 +9,7 @@ async function syncDatabase() {
     if (alter) await migratePoSessionStatuses();
     await sequelize.sync({ alter });
     await migratePlacementSchema();
+    await migrateRfidLifecycleHistory();
     if (alter) await migrateLegacyPoRepackFields();
     console.log(`Database schema ${alter ? 'updated' : 'created'} successfully.`);
   } catch (error) {
@@ -16,6 +17,61 @@ async function syncDatabase() {
     process.exitCode = 1;
   } finally {
     await sequelize.close();
+  }
+}
+
+async function migrateRfidLifecycleHistory() {
+  // Existing installations already have movement history but no lifecycle
+  // events. Seed only tags without events so this remains safe on every run.
+  const tags = await RfidTag.findAll();
+  for (const tag of tags) {
+    const existingEvent = await RfidLifecycleEvent.findOne({ where: { rfid_tag_id: tag.id } });
+    if (existingEvent) continue;
+
+    await RfidLifecycleEvent.create({
+      rfid_tag_id: tag.id,
+      cycle_number: 1,
+      event_type: 'registered',
+      source: 'legacy_backfill',
+      createdAt: tag.createdAt,
+      updatedAt: tag.updatedAt,
+      metadata: { reason: 'backfilled_from_existing_rfid_tag' },
+    });
+
+    const movements = await InventoryMovement.findAll({
+      where: { rfid_tag_id: tag.id },
+      order: [['createdAt', 'ASC'], ['id', 'ASC']],
+    });
+    let cycle = 1;
+    for (const movement of movements) {
+      const eventType = movement.movement_type === 'placement' ? 'placed'
+        : movement.movement_type === 'relocation' ? 'relocated' : movement.movement_type;
+      await RfidLifecycleEvent.create({
+        rfid_tag_id: tag.id,
+        cycle_number: cycle,
+        event_type: eventType,
+        po_pack_plan_id: movement.po_pack_plan_id,
+        from_rack_id: movement.from_rack_id,
+        to_rack_id: movement.to_rack_id,
+        source: 'legacy_backfill',
+        createdAt: movement.createdAt,
+        updatedAt: movement.updatedAt,
+        metadata: { legacy_movement_id: movement.id },
+      });
+      if (['outbound', 'trash'].includes(movement.movement_type)) {
+        await RfidLifecycleEvent.create({
+          rfid_tag_id: tag.id,
+          cycle_number: cycle,
+          event_type: 'available_for_reuse',
+          po_pack_plan_id: movement.po_pack_plan_id,
+          source: 'legacy_backfill',
+          createdAt: movement.createdAt,
+          updatedAt: movement.updatedAt,
+          metadata: { legacy_movement_id: movement.id },
+        });
+        cycle += 1;
+      }
+    }
   }
 }
 

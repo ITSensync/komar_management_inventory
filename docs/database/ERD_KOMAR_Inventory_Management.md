@@ -4,8 +4,8 @@
 > katalog produk, persiapan session PO, assignment RFID, pencetakan label, scan
 > realtime melalui Orange Pi, master rak, dan placement repack oleh site employee.
 > Relocation, outbound, trash workflow, dan reuse RFID sudah didukung melalui
-> lifecycle placement. Opname, autentikasi, dan multi-site belum menjadi workflow
-> aktif.
+> lifecycle placement. Opname sudah menjadi workflow aktif; autentikasi dan multi-site
+> belum menjadi workflow aktif.
 
 ## Tabel aktif
 
@@ -22,6 +22,10 @@
 | `rfid_scan_events` | Log setiap event UID dari reader, termasuk hasil dan error. |
 | `racks` | Master rak yang dibuat Admin dan dipilih mobile. |
 | `inventory_movements` | Histori placement, relocation, outbound, dan trash. |
+| `stocktake_sessions` | Sesi opname dengan tanggal, status draft/submit, dan catatan. |
+| `stocktake_session_items` | Snapshot RFID placed, hasil scan, dan selisih per rak. |
+| `stocktake_scan_events` | Log scan opname, termasuk duplicate dan rejected UID. |
+| `rfid_lifecycle_events` | Histori fase RFID lintas penggunaan/cycle. |
 
 ## Relasi
 
@@ -35,6 +39,11 @@ erDiagram
     PO_PACK_PLANS ||--o{ INVENTORY_MOVEMENTS : "memiliki histori"
     RFID_TAGS ||--o{ INVENTORY_MOVEMENTS : "tercatat pada"
     RACKS ||--o{ INVENTORY_MOVEMENTS : "menjadi tujuan"
+    STOCKTAKE_SESSIONS ||--o{ STOCKTAKE_SESSION_ITEMS : "memiliki snapshot"
+    STOCKTAKE_SESSIONS ||--o{ STOCKTAKE_SCAN_EVENTS : "mencatat scan"
+    RFID_TAGS ||--o{ STOCKTAKE_SESSION_ITEMS : "diamati"
+    RFID_TAGS ||--o{ RFID_LIFECYCLE_EVENTS : "memiliki histori cycle"
+    RACKS ||--o{ STOCKTAKE_SESSION_ITEMS : "menjadi ekspektasi"
 
     PO_SESSIONS ||--o{ LABEL_PRINT_JOBS : "memiliki"
     PO_SESSION_ITEMS ||--o{ LABEL_PRINT_JOBS : "dicetak sebagai"
@@ -123,6 +132,41 @@ erDiagram
         string source
         datetime created_at
     }
+    STOCKTAKE_SESSIONS {
+        uuid id PK
+        string session_number UK
+        date session_date
+        enum status
+        datetime started_at
+        datetime submitted_at
+    }
+    STOCKTAKE_SESSION_ITEMS {
+        uuid id PK
+        uuid stocktake_session_id FK
+        int rfid_tag_id FK
+        uuid po_pack_plan_id FK
+        uuid expected_rack_id FK
+        uuid observed_rack_id FK
+        enum result
+        int scan_count
+    }
+    STOCKTAKE_SCAN_EVENTS {
+        uuid id PK
+        uuid stocktake_session_id FK
+        string event_id UK
+        string rfid_number
+        enum status
+        datetime observed_at
+    }
+    RFID_LIFECYCLE_EVENTS {
+        uuid id PK
+        int rfid_tag_id FK
+        int cycle_number
+        enum event_type
+        uuid po_pack_plan_id FK
+        uuid stocktake_session_id FK
+        datetime created_at
+    }
 ```
 
 ## Alur data utama
@@ -138,12 +182,17 @@ products
 
 Placement site employee:
 
-```text
 rfid_tags
   → po_pack_plans (unplaced → placed → outbound/trash)
   → racks (current_rack_id)
   → inventory_movements (placement/relocation/outbound/trash history)
-```
+
+Stocktake:
+
+stocktake_sessions
+  → stocktake_session_items (snapshot RFID placed saat sesi dibuat)
+  → stocktake_scan_events (accepted/duplicate/rejected)
+  → report per rak (matched/missing/lifecycle_changed)
 ```
 
 Saat hardware digunakan, alurnya adalah:
