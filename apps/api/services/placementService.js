@@ -11,8 +11,8 @@ const {
 } = require('../models');
 const { normalizeRfidTags } = require('../utils/rfidTags');
 const { normalizePlacementRequest, normalizeRelocationPreviewRequest } = require('../utils/placement');
-const { normalizeInventoryActionRequest } = require('../utils/inventoryActions');
-const { canClose, canRelocate, canReuse } = require('../utils/rfidLifecycle');
+const { normalizeInventoryActionRequest, normalizeInventoryPreviewRequest } = require('../utils/inventoryActions');
+const { canRelocate, canReuse } = require('../utils/rfidLifecycle');
 const { ADMIN_NOT_READY_MESSAGE, adminReadiness, adminNotReadyError } = require('../utils/placementEligibility');
 const { recordRfidLifecycleEvent } = require('./rfidHistoryService');
 
@@ -52,6 +52,64 @@ function itemSummary(plan, tag, rack) {
     expires_on: item.expires_on,
     placement_status: plan.placement_status,
     current_rack: rack ? { id: rack.id, code: rack.code, name: rack.name } : null,
+  };
+}
+
+function terminalMovementError(rfidNumber, code, message, plan = null, tag = null) {
+  return {
+    ...(plan && tag ? itemSummary(plan, tag, plan.currentRack) : {}),
+    rfid_number: rfidNumber,
+    eligible: false,
+    error_code: code,
+    message,
+  };
+}
+
+async function inspectTerminalMovement(rfidNumbers, movementType, options = {}) {
+  if (!['outbound', 'trash'].includes(movementType)) {
+    return { items: [], records: [], eligible: false, errors: [{ code: 'UNSUPPORTED_INVENTORY_ACTION', message: 'Unsupported inventory action.' }] };
+  }
+
+  const queryOptions = options.transaction
+    ? { transaction: options.transaction, lock: options.transaction.LOCK.UPDATE }
+    : {};
+  const tagNumbers = [...new Set(rfidNumbers)];
+  const tags = await RfidTag.findAll({ where: { rfid_number: { [Op.in]: tagNumbers } }, ...queryOptions });
+  const tagsByNumber = new Map(tags.map((tag) => [tag.rfid_number, tag]));
+  const plans = tags.length ? await PoPackPlan.findAll({
+    where: { rfid_tag_id: { [Op.in]: tags.map((tag) => tag.id) } },
+    include: planInclude(),
+    ...queryOptions,
+  }) : [];
+  const plansByTagId = new Map(plans.map((plan) => [plan.rfid_tag_id, plan]));
+  const records = [];
+  const items = tagNumbers.map((rfidNumber) => {
+    const tag = tagsByNumber.get(rfidNumber);
+    if (!tag) return terminalMovementError(rfidNumber, 'RFID_NOT_REGISTERED', 'RFID tag is not registered.');
+
+    const plan = plansByTagId.get(tag.id);
+    if (!plan) return terminalMovementError(rfidNumber, 'PACK_PLAN_NOT_FOUND', 'RFID tag is not assigned to a pack plan.');
+    if (plan.status === 'cancelled') return terminalMovementError(rfidNumber, 'PACK_PLAN_CANCELLED', 'This pack plan is cancelled.', plan, tag);
+    if (plan.placement_status === 'outbound' || plan.placement_status === 'trash') {
+      return terminalMovementError(rfidNumber, 'RFID_ACTION_ALREADY_COMPLETED', 'RFID lifecycle is already outbound or trash.', plan, tag);
+    }
+    if (plan.placement_status !== 'placed') {
+      return terminalMovementError(rfidNumber, 'RFID_NOT_PLACED', 'Only a placed RFID can be marked outbound or trash.', plan, tag);
+    }
+    if (!plan.current_rack_id || !plan.currentRack) {
+      return terminalMovementError(rfidNumber, 'RFID_LOCATION_NOT_FOUND', 'The placed RFID has no current rack.', plan, tag);
+    }
+
+    const item = { ...itemSummary(plan, tag, plan.currentRack), eligible: true };
+    records.push({ tag, plan, fromRackId: plan.current_rack_id, item });
+    return item;
+  });
+
+  return {
+    items,
+    records,
+    eligible: items.length > 0 && items.every((item) => item.eligible),
+    errors: items.filter((item) => !item.eligible),
   };
 }
 
@@ -469,6 +527,27 @@ async function createRelocation(input) {
   });
 }
 
+async function previewTerminalMovement(input, movementType) {
+  if (!['outbound', 'trash'].includes(movementType)) return failure(400, 'Unsupported inventory action.');
+  const normalized = normalizeInventoryPreviewRequest(input);
+  if (normalized.errors.length) return failure(400, 'Validation failed.', normalized.errors);
+
+  const inspection = await inspectTerminalMovement(normalized.data.rfid_numbers, movementType);
+  return {
+    status: 200,
+    body: {
+      success: true,
+      data: {
+        movement_type: movementType,
+        eligible: inspection.eligible,
+        total_requested: inspection.items.length,
+        total_eligible: inspection.records.length,
+        items: inspection.items,
+      },
+    },
+  };
+}
+
 async function createTerminalMovement(input, movementType) {
   if (!['outbound', 'trash'].includes(movementType)) {
     return failure(400, 'Unsupported inventory action.');
@@ -481,35 +560,9 @@ async function createTerminalMovement(input, movementType) {
   if (existing.length) return existingMovementResponse(existing, request, movementType);
 
   return sequelize.transaction(async (transaction) => {
-    const records = [];
-    const errors = [];
-    for (const rfidNumber of [...request.rfid_numbers].sort()) {
-      const tag = await RfidTag.findOne({ where: { rfid_number: rfidNumber }, transaction, lock: transaction.LOCK.UPDATE });
-      if (!tag) {
-        errors.push({ rfid_number: rfidNumber, code: 'RFID_NOT_REGISTERED', message: 'RFID tag is not registered.' });
-        continue;
-      }
-      const plan = await PoPackPlan.findOne({
-        where: { rfid_tag_id: tag.id },
-        include: planInclude(),
-        transaction,
-        lock: transaction.LOCK.UPDATE,
-      });
-      if (!plan) {
-        errors.push({ rfid_number: rfidNumber, code: 'PACK_PLAN_NOT_FOUND', message: 'RFID tag is not assigned to a pack plan.' });
-        continue;
-      }
-      if (!canClose(plan.placement_status)) {
-        const code = canReuse(plan.placement_status) ? 'RFID_ACTION_ALREADY_COMPLETED' : 'RFID_NOT_PLACED';
-        errors.push({ rfid_number: rfidNumber, code, message: `RFID cannot be marked ${movementType} from its current lifecycle status.` });
-        continue;
-      }
-      if (!plan.current_rack_id) {
-        errors.push({ rfid_number: rfidNumber, code: 'RFID_LOCATION_NOT_FOUND', message: 'The placed RFID has no current rack.' });
-        continue;
-      }
-      records.push({ tag, plan, fromRackId: plan.current_rack_id });
-    }
+    const inspection = await inspectTerminalMovement([...request.rfid_numbers].sort(), movementType, { transaction });
+    const records = inspection.records;
+    const errors = inspection.errors;
 
     if (errors.length) return failure(409, `${movementType} validation failed.`, errors);
 
@@ -601,7 +654,9 @@ module.exports = {
   createPlacement,
   createRelocation,
   createTerminalMovement,
+  inspectTerminalMovement,
   listPlacementHistory,
+  previewTerminalMovement,
   previewPlacement,
   previewRelocation,
 };

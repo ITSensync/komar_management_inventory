@@ -86,9 +86,39 @@ export type PlacementItem = {
   product_id: string;
   sku: string;
   product_name: string;
+  units: number;
+  base_unit: string;
   expires_on?: string | null;
   placement_status: string;
   current_rack?: Rack | null;
+};
+export type TerminalMovementType = "outbound" | "trash";
+export type TerminalScanSession = {
+  id: string;
+  reader_code: string;
+  scan_type: "terminal_movement";
+  movement_type: TerminalMovementType;
+  status: string;
+  expires_at: string;
+};
+export type TerminalPreviewItem = PlacementItem & {
+  eligible: boolean;
+  error_code?: string;
+  message?: string;
+};
+export type TerminalPreview = {
+  movement_type: TerminalMovementType;
+  eligible: boolean;
+  total_requested: number;
+  total_eligible: number;
+  items: TerminalPreviewItem[];
+};
+export type InventoryMovementResponse = {
+  client_request_id: string;
+  movement_type: TerminalMovementType;
+  total_processed: number;
+  processed_at: string;
+  items: PlacementItem[];
 };
 export type PlacementResponse = {
   client_request_id: string;
@@ -137,7 +167,7 @@ export type PoSession = {
   labelPrintJobs?: LabelPrintJob[];
 };
 export type RfidProgress = { po_session_item_id: string; required_rfid_count: number; assigned_rfid_count: number; remaining_rfid_count: number; status: string };
-export type ScanResult = { index: number; rfid_number: string; id?: number; pack_plan_id?: string; pack_number?: number; label_code?: string; registered_now?: boolean; code?: string };
+export type ScanResult = { index?: number; rfid_number: string; id?: number; rfid_tag_id?: number; pack_plan_id?: string; pack_number?: number; label_code?: string; registered_now?: boolean; code?: string; eligible?: boolean; product_id?: string; sku?: string; product_name?: string; units?: number; base_unit?: string; expires_on?: string | null; placement_status?: string; current_rack?: Rack | null };
 export type ScanError = { index?: number; rfid_number?: string; code: string; message: string; session_number?: string; po_session_item_id?: string; product_name?: string; placement_status?: string };
 export type ScanResponse = { success: boolean; total_requested: number; total_assigned: number; total_errors: number; remaining_rfid_count: number; results: ScanResult[]; errors: ScanError[] };
 export type LabelSnapshot = { session_number: string; sku: string; product_name: string; base_unit: string; units: number; pack_number: number; expiry_date?: string | null; rfid_uid: string; label_code: string };

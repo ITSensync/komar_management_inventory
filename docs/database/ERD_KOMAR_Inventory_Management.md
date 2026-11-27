@@ -104,8 +104,10 @@ erDiagram
     }
     RFID_SCAN_SESSIONS {
         uuid id PK
-        uuid po_session_item_id FK
+        uuid po_session_item_id FK nullable
         string reader_code
+        enum scan_type
+        enum movement_type nullable
         enum status
     }
     RFID_SCAN_EVENTS {

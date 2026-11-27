@@ -8,6 +8,7 @@ async function syncDatabase() {
     await sequelize.authenticate();
     if (alter) await migratePoSessionStatuses();
     await sequelize.sync({ alter });
+    await migrateRfidScanSessionSchema();
     await migratePlacementSchema();
     await migrateRfidLifecycleHistory();
     if (alter) await migrateLegacyPoRepackFields();
@@ -73,6 +74,42 @@ async function migrateRfidLifecycleHistory() {
       }
     }
   }
+}
+
+async function migrateRfidScanSessionSchema() {
+  const queryInterface = sequelize.getQueryInterface();
+  const columns = await queryInterface.describeTable('rfid_scan_sessions');
+
+  if (columns.po_session_item_id) {
+    await queryInterface.changeColumn('rfid_scan_sessions', 'po_session_item_id', {
+      type: DataTypes.UUID,
+      allowNull: true,
+    });
+  } else {
+    await queryInterface.addColumn('rfid_scan_sessions', 'po_session_item_id', {
+      type: DataTypes.UUID,
+      allowNull: true,
+    });
+  }
+
+  if (!columns.scan_type) {
+    await queryInterface.addColumn('rfid_scan_sessions', 'scan_type', {
+      type: DataTypes.ENUM('po_assignment', 'terminal_movement'),
+      allowNull: false,
+      defaultValue: 'po_assignment',
+    });
+  }
+  if (!columns.movement_type) {
+    await queryInterface.addColumn('rfid_scan_sessions', 'movement_type', {
+      type: DataTypes.ENUM('outbound', 'trash'),
+      allowNull: true,
+    });
+  }
+
+  const indexes = await queryInterface.showIndex('rfid_scan_sessions');
+  const hasIndex = (field) => indexes.some((index) => index.fields && index.fields.length === 1 && index.fields[0].attribute === field);
+  if (!hasIndex('scan_type')) await queryInterface.addIndex('rfid_scan_sessions', ['scan_type'], { name: 'rfid_scan_sessions_scan_type_idx' });
+  if (!hasIndex('movement_type')) await queryInterface.addIndex('rfid_scan_sessions', ['movement_type'], { name: 'rfid_scan_sessions_movement_type_idx' });
 }
 
 async function migratePlacementSchema() {

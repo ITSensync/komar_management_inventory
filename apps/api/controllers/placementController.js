@@ -1,4 +1,5 @@
 const placementService = require('../services/placementService');
+const rfidScanService = require('../services/rfidScanService');
 
 async function previewPlacement(req, res, next) {
   try {
@@ -35,9 +36,30 @@ async function createOutbound(req, res, next) {
   } catch (error) { next(error); }
 }
 
+async function previewOutbound(req, res, next) {
+  try {
+    const result = await placementService.previewTerminalMovement(req.body, 'outbound');
+    res.status(result.status).json(result.body);
+  } catch (error) { next(error); }
+}
+
 async function createTrash(req, res, next) {
   try {
     const result = await placementService.createTerminalMovement(req.body, 'trash');
+    res.status(result.status).json(result.body);
+  } catch (error) { next(error); }
+}
+
+async function previewTrash(req, res, next) {
+  try {
+    const result = await placementService.previewTerminalMovement(req.body, 'trash');
+    res.status(result.status).json(result.body);
+  } catch (error) { next(error); }
+}
+
+async function startTerminalScan(req, res, next) {
+  try {
+    const result = await rfidScanService.createTerminalScanSession(req.body);
     res.status(result.status).json(result.body);
   } catch (error) { next(error); }
 }
@@ -55,5 +77,8 @@ module.exports = {
   createTrash,
   listPlacementHistory,
   previewPlacement,
+  previewOutbound,
   previewRelocation,
+  previewTrash,
+  startTerminalScan,
 };

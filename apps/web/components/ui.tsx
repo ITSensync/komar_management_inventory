@@ -4,11 +4,11 @@ import { Info, X } from "lucide-react";
 import { cloneElement, useId, useState, type ReactElement, type ReactNode } from "react";
 
 export function StatusBadge({ value }: { value: string }) {
-  const tone = value === "active" || value === "printed" || value === "completed" || value === "label_printed"
+  const tone = value === "active" || value === "printed" || value === "completed" || value === "label_printed" || value === "eligible" || value === "placed" || value === "stored"
     ? "border-teal-300/30 bg-teal-300/10 text-teal-100"
     : value === "pending_tags" || value === "ready_to_print" || value === "generated"
       ? "border-amber-300/30 bg-amber-300/10 text-amber-100"
-      : value === "cancelled" || value === "failed"
+      : value === "cancelled" || value === "failed" || value === "rejected" || value === "error"
         ? "border-red-300/30 bg-red-300/10 text-red-100"
         : "border-slate-600 bg-slate-800 text-slate-200";
   return <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${tone}`}>{value.replaceAll("_", " ")}</span>;

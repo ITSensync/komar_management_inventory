@@ -135,8 +135,19 @@ const RfidTag = sequelize.define('RfidTag', {
 
 const RfidScanSession = sequelize.define('RfidScanSession', {
   id: uuid,
-  po_session_item_id: { type: DataTypes.UUID, allowNull: false },
+  // PO assignment scans are tied to an item; outbound/trash scans are generic
+  // reader sessions and deliberately do not mutate a PO item while scanning.
+  po_session_item_id: { type: DataTypes.UUID, allowNull: true },
   reader_code: { type: DataTypes.STRING(100), allowNull: false },
+  scan_type: {
+    type: DataTypes.ENUM('po_assignment', 'terminal_movement'),
+    allowNull: false,
+    defaultValue: 'po_assignment',
+  },
+  movement_type: {
+    type: DataTypes.ENUM('outbound', 'trash'),
+    allowNull: true,
+  },
   status: {
     type: DataTypes.ENUM('starting', 'active', 'stopped', 'completed', 'failed', 'expired'),
     allowNull: false,

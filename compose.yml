@@ -52,6 +52,8 @@ services:
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
       CORS_ORIGINS: ${CORS_ORIGINS}
+      API_PUBLIC_URL: ${API_PUBLIC_URL:-http://localhost:3000}
+      RFID_WS_PUBLIC_URL: ${RFID_WS_PUBLIC_URL:-ws://localhost:3000/ws}
       RFID_GATEWAY_TOKEN: ${RFID_GATEWAY_TOKEN}
       RFID_READER_CODE: ${RFID_READER_CODE:-orangepi-reader-01}
       RFID_READER_CODES: ${RFID_READER_CODES:-}
@@ -81,6 +83,9 @@ services:
       context: ./apps/web
       args:
         INTERNAL_API_BASE_URL: http://api:3000
+        NEXT_PUBLIC_RFID_WS_URL: ${NEXT_PUBLIC_RFID_WS_URL:-ws://localhost:3000/ws}
+        NEXT_PUBLIC_RFID_PO_READER_CODE: ${NEXT_PUBLIC_RFID_PO_READER_CODE:-orangepi-reader-01}
+        NEXT_PUBLIC_RFID_TERMINAL_READER_CODE: ${NEXT_PUBLIC_RFID_TERMINAL_READER_CODE:-orangepi-reader-02}
     environment:
       NODE_ENV: production
       PORT: 3001

@@ -34,6 +34,11 @@ memproses `rfid.detected` secara idempotent melalui `event_id`, lalu memakai
 transaksi assignment RFID yang sama dengan scan manual. Detail protokol hardware
 berada di `docs/hardware/orangepi-rfid-websocket.md`.
 
+Untuk outbound/trash, session memakai `scan_type=terminal_movement` dan
+`movement_type` yang sesuai. Event reader hanya menghasilkan kandidat preview;
+perubahan inventory baru terjadi setelah `POST /api/mobile/placements/outbound`
+atau `POST /api/mobile/placements/trash` dikonfirmasi.
+
 ## Alur placement Site Employee
 
 ```text
@@ -71,6 +76,12 @@ Placement ulang terhadap RFID `placed` ditolak. Relocation harus memakai
 endpoint khusus dan rak tujuan berbeda. Outbound/trash menghapus lokasi aktif,
 menyimpan movement history, lalu membuka RFID untuk reuse; UID tidak dibuat
 sebagai record baru.
+
+Web outbound/trash menggunakan reader yang sama dengan PO melalui
+`POST /api/mobile/placements/terminal-scan-sessions`, WebSocket `/ws`, endpoint
+preview, kemudian endpoint submit. Konfigurasi URL publik reader dan browser
+berada pada `RFID_WS_PUBLIC_URL` dan `NEXT_PUBLIC_RFID_WS_URL`; token gateway
+tidak pernah dipublikasikan ke browser.
 
 ## Akses development melalui Cloudflare
 

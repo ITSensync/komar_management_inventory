@@ -7,7 +7,10 @@ router.post('/mobile/placements/preview', controller.previewPlacement);
 router.post('/mobile/placements/relocation/preview', controller.previewRelocation);
 router.post('/mobile/placements', controller.createPlacement);
 router.post('/mobile/placements/relocation', controller.createRelocation);
+router.post('/mobile/placements/terminal-scan-sessions', controller.startTerminalScan);
+router.post('/mobile/placements/outbound/preview', controller.previewOutbound);
 router.post('/mobile/placements/outbound', controller.createOutbound);
+router.post('/mobile/placements/trash/preview', controller.previewTrash);
 router.post('/mobile/placements/trash', controller.createTrash);
 router.get('/mobile/placements/history', controller.listPlacementHistory);
 

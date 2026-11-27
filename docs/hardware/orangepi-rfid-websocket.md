@@ -141,6 +141,11 @@ Setiap UID yang terbaca dikirim sebagai event unik:
 
 ## Acknowledgement backend
 
+Pada session `po_assignment`, acknowledgement `stored` berarti UID berhasil
+diproses untuk assignment PO. Pada session `terminal_movement`, `stored` hanya
+berarti UID valid dan masuk daftar preview; submit inventory tetap dilakukan
+oleh web/mobile melalui endpoint REST.
+
 UID berhasil disimpan:
 
 ```json
@@ -199,3 +204,57 @@ Gateway sebaiknya melakukan reconnect dengan backoff ketika koneksi putus. Setel
 - Gateway WebSocket memakai token bersama dan WSS saat melewati internet.
 - Jangan menganggap Quick Tunnel sebagai kontrol akses production.
 - Jangan mencatat token di log atau mengirim token ke mobile.
+
+## Reader untuk outbound dan trash
+
+Outbound dan trash memakai reader Orange Pi yang sama seperti session PO. Backend
+membuat `scan_type=terminal_movement` dan mengirim `movement_type` (`outbound`
+atau `trash`) pada perintah `reader.start`.
+
+```json
+{
+  "type": "reader.start",
+  "scan_session_id": "SCAN_SESSION_UUID",
+  "scan_type": "terminal_movement",
+  "movement_type": "outbound",
+  "expires_at": "2026-11-26T10:30:00.000Z"
+}
+```
+
+Gateway tidak perlu membuat perbedaan perilaku di antara outbound dan trash:
+keduanya tetap hanya membaca UID dan mengirim `rfid.detected`. UID yang terbaca
+langsung ditampilkan di web bersama detail produk jika backend mengenalinya.
+Pembacaan tersebut belum mengubah lokasi, status paket, stok, atau status RFID.
+Web memanggil endpoint preview dan hanya setelah operator mengonfirmasi submit
+backend membuat movement secara atomik.
+
+## Konfigurasi hardware team
+
+Gunakan konfigurasi berikut pada Orange Pi, tanpa menyimpan konfigurasi ini di
+repository publik:
+
+```json
+{
+  "api_ws_url": "wss://api.example.com/ws",
+  "reader_code": "orangepi-reader-02",
+  "gateway_token": "SECRET_FROM_BACKEND",
+  "reconnect": {
+    "enabled": true,
+    "initial_delay_ms": 1000,
+    "max_delay_ms": 30000
+  }
+}
+```
+
+Local LAN menggunakan `ws://<api-host>:3000/ws`. Jangan menggunakan port web
+`3001` atau path `/api/ws`. Token gateway hanya untuk handshake WebSocket dan
+tidak boleh dikirim ke browser.
+
+Checklist integrasi:
+
+1. Kirim `hello` sebagai pesan pertama setelah koneksi.
+2. Tunggu `hello.accepted` sebelum mengirim status reader.
+3. Gunakan `scan_session_id` dari perintah `reader.start` pada setiap event.
+4. Gunakan `event_id` yang unik dan stabil saat retry event yang sama.
+5. Anggap event berhasil hanya setelah menerima `rfid.ack`.
+6. Reconnect dengan backoff dan kirim handshake ulang setelah koneksi pulih.

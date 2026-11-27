@@ -100,6 +100,9 @@ menggunakan API repo ini.
 - [OpenAPI](apps/api/docs/openapi.yaml) — sumber kebenaran endpoint yang juga disajikan oleh Swagger.
 - [ERD](docs/database/ERD_KOMAR_Inventory_Management.md)
 - [Integrasi Orange Pi RFID USB Serial](docs/hardware/orangepi-rfid-websocket.md)
+- [Panduan hardware team](docs/hardware/hardware-team-integration-guide.md)
+- [Flow hardware outbound/trash](docs/hardware/outbound-trash-hardware-integration.md)
+- [Panduan API outbound/trash](docs/api/outbound-trash-api-guide.md)
 
 ## Git
 

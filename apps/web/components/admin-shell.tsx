@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Barcode, FileText, LayoutDashboard, Tags, Warehouse } from "lucide-react";
+import { Barcode, FileText, LayoutDashboard, PackageCheck, Tags, Warehouse } from "lucide-react";
 import type { ReactNode } from "react";
 
 const navigation = [
@@ -11,6 +11,7 @@ const navigation = [
   { href: "/app/admin/purchase-orders", label: "Session PO", icon: FileText },
   { href: "/app/admin/tags", label: "Inventaris RFID", icon: Barcode },
   { href: "/app/admin/racks", label: "Master rak", icon: Warehouse },
+  { href: "/app/admin/outbound-trash", label: "Outbound / Trash", icon: PackageCheck },
 ];
 
 export function AdminShell({ children }: { children: ReactNode }) {

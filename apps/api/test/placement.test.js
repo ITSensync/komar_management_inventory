@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { normalizePlacementRequest, normalizeRelocationPreviewRequest } = require('../utils/placement');
-const { normalizeInventoryActionRequest } = require('../utils/inventoryActions');
+const { normalizeInventoryActionRequest, normalizeInventoryPreviewRequest } = require('../utils/inventoryActions');
 const { canClose, canPlace, canRelocate, canReuse } = require('../utils/rfidLifecycle');
 const { normalizeRack } = require('../utils/racks');
 const { ADMIN_NOT_READY_MESSAGE, adminReadiness, adminNotReadyError } = require('../utils/placementEligibility');
@@ -101,6 +101,24 @@ test('normalizes an outbound/trash action without a rack', () => {
     rfid_numbers: ['E280ABC'],
     client_request_id: 'terminal-action-1',
   });
+});
+
+test('normalizes an outbound/trash preview without requiring an idempotency key', () => {
+  const result = normalizeInventoryPreviewRequest({
+    rfid_numbers: [' e280abc ', 'E280DEF'],
+  });
+
+  assert.deepEqual(result.errors, []);
+  assert.deepEqual(result.data, { rfid_numbers: ['E280ABC', 'E280DEF'] });
+});
+
+test('rejects duplicate RFID values before terminal preview', () => {
+  const result = normalizeInventoryPreviewRequest({
+    rfid_numbers: ['E280ABC', 'e280abc'],
+  });
+
+  assert.equal(result.errors[0].code, 'duplicate_in_request');
+  assert.equal(result.errors[0].field, 'rfid_numbers');
 });
 
 test('enforces the RFID placement lifecycle states', () => {

@@ -1,6 +1,6 @@
 # KOMAR API
 
-Express.js API untuk katalog produk, session PO, RFID, dan job label. Aplikasi ini dijalankan bersama dashboard dan MySQL dari root monorepo.
+Express.js API untuk katalog produk, session PO, RFID, placement, outbound/trash, dan job label. Aplikasi ini dijalankan bersama dashboard dan MySQL dari root monorepo.
 
 ## Menjalankan
 
@@ -30,7 +30,7 @@ Dokumentasi implementasi lintas aplikasi berada pada [docs/api](../../docs/api/)
 
 ## Database Models
 
-Model Sequelize di `models/index.js` mencakup katalog, RFID, session PO admin, item PO, rencana paket RFID, job label, serta fondasi operasi gudang lainnya. Session PO, scan/assignment RFID, dan job label telah memiliki endpoint; penerimaan barang dan operasi gudang lanjutan belum tersedia sebagai API.
+Model Sequelize di `models/index.js` mencakup katalog, RFID, session PO admin, item PO, rencana paket RFID, job label, placement, scan session, movement, dan lifecycle history. Scan terminal outbound/trash bersifat reader-only sampai preview dikonfirmasi oleh client.
 
 ## API Endpoints
 
@@ -163,7 +163,10 @@ POST   /api/po-session-items/:id/print-jobs
 DELETE /api/po-pack-plans/:id/rfid
 POST   /api/po-pack-plans/:id/reprint
 POST   /api/mobile/placements/relocation
+POST   /api/mobile/placements/terminal-scan-sessions
+POST   /api/mobile/placements/outbound/preview
 POST   /api/mobile/placements/outbound
+POST   /api/mobile/placements/trash/preview
 POST   /api/mobile/placements/trash
 GET    /api/print-jobs/:id
 POST   /api/print-jobs/:id/mark-printed
